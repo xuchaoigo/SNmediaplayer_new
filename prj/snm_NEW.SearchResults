@@ -1,0 +1,6 @@
+---- read_volume_index Matches (5 in 4 files) ----
+Common_setting.c (z:\snmediaplayer_new\snmediaplayer):int read_volume_index(int *volume)
+Common_setting.h (z:\snmediaplayer_new\snmediaplayer):int read_volume_index(int *volume);
+RealizeSNmediaplayer.cpp (z:\snmediaplayer_new\snmediaplayer):	read_volume_index(&real_volume);
+SNmediaplayer.cpp (z:\snmediaplayer_new\snmediaplayer):	read_volume_index(&sn_volume);
+SNmediaplayer.cpp (z:\snmediaplayer_new\snmediaplayer):	read_volume_index(&sn_volume);

@@ -1,0 +1,544 @@
+/**
+ * @brief Interfaces for graphics library
+ * @file DSP_graphics_api.h
+ *
+ * @author	Xianzhuo Liu
+ * @date	2011-07-02
+ */
+#ifndef DSP_GRAPHICS_API_H
+#define DSP_GRAPHICS_API_H
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define DFB_OSD_WIDTH 1280
+#define DFB_OSD_HEIGHT 720
+
+#define DSP_GRAPHICS_WIDTH 1280
+#define DSP_GRAPHICS_HEIGHT 720
+
+#define DSP_GRAPHICS_SUCCESS  0
+#define DSP_GRAPHICS_FAIL   (-1)
+
+#define DSP_GRAPHICS_UI_DEBUG
+//#define DSP_GRAPHICS_DEBUG
+//#define DSP_GRAPHICS_PRE_EXTEND
+
+typedef struct {
+	int x;
+	int y;
+	int width;
+	int height;
+}DSPRect;	
+
+/**
+\brief 初始化图形
+\attention 只初始化图形操作，系统的初始化和显示输出的初始化在这之前应该完成
+
+\param 无
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+ */
+int DSP_graphics_init(void);
+
+
+/**
+\brief 去初始化图形显示
+\attention
+
+\param 无
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_fini(void);
+
+/**
+\brief 暂停图形界面显示
+\attention 只暂停所有的动画，不对其他图形作改变
+
+\param 无
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_pause(void);
+
+/**
+\brief 重启图形界面显示
+\attention 重启所有暂停的动画，并刷新整个图层
+
+\param 无
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_resume(void);
+
+
+/*******************************************************************************************
+                                    播放器UI层接口
+ *******************************************************************************************/
+
+
+/**
+\brief 给定字体、大小、颜色，在UI层从指定位置开始显示指定文本
+\attention 调用者应确认显示的起始位置在图形有效区域内
+
+\param[in] in_font	字体文件
+\param[in] in_text 需要显示的文本内容所在的字符串
+\param[in] in_len 需要显示的文本长度(strlen)
+\param[in] in_x 显示区域的左上角横坐标
+\param[in] in_y 显示区域的左上角纵坐标
+\param[in] in_font_width 单个字符的显示宽度
+\param[in] in_font_height 单个字符的显示高度
+\param[in] in_color 字符颜色
+\param[in] in_bgcolor 文本区域背景颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_display_text(const char* in_font, const char* in_text,
+		int in_len, int in_x, int in_y, int in_font_width,
+		int in_font_height,	int in_color, int in_bgcolor);
+
+/**
+\brief 给定字体、大小、颜色，在UI层从指定位置开始显示指定文本
+\attention 调用者应确认显示的起始位置在图形有效区域内 \n
+在指定区域居中显示字符 \n
+目前在海思平台上的实现与::DSP_graphics_ui_display_text完全一样
+
+\param[in] in_font	字体文件
+\param[in] in_text 需要显示的文本内容所在的字符串
+\param[in] in_len 需要显示的文本长度(strlen)
+\param[in] in_x 显示区域的左上角横坐标
+\param[in] in_y 显示区域的左上角纵坐标
+\param[in] in_font_width 单个字符的显示宽度
+\param[in] in_font_height 单个字符的显示高度
+\param[in] in_color 字符颜色
+\param[in] in_bgcolor 文本区域背景颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+
+\see \n
+::DSP_graphics_ui_display_text()
+*/
+int DSP_graphics_ui_display_text_in_middle(const char* in_font,
+		const char* in_text, int in_len, int in_x, int in_y, 
+		int in_font_width, int in_font_height, int in_color, int in_bgcolor);
+
+/**
+\brief 给定字体、大小，计算指定文本的显示宽度
+\attention 调用者应确认显示的起始位置在图形有效区域内
+
+\param[in] in_font	字体文件
+\param[in] in_text 需要显示的文本内容所在的字符串
+\param[in] in_len 需要显示的文本长度(strlen)
+\param[in] in_font_width 单个字符的显示宽度
+\param[in] in_font_height 单个字符的显示高度
+\param[out] out_width 显示所需宽度
+\param[out] out_height 显示所需高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_get_text_pixel_length(const char* in_font,
+		const char* in_text, int in_len, int in_font_width,
+		int in_font_height, int* out_width, int* out_height);
+
+/**
+\brief 在UI层以指定的颜色填充一块矩形区域
+\attention 调用者应确认矩形区域在图形有效区域内
+
+\param[in] in_rect 指定的矩形区域
+\param[in] in_color 填充颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_fill_rectangle(DSPRect in_rect, int in_color);
+
+/**
+\brief 在UI层显示一幅图片
+\attention 调用者应该确认指定的矩形区域在图形有效范围内 \n
+GIF动画的显示请调用::DSP_graphics_ui_display_gif
+
+\param[in] in_path 图片路径名
+\param[in] in_rect 指定显示的矩形区域
+\param[in] in_is_stretched 是否伸缩(若不伸缩则将图片在矩形区域内原样大小显示，并对齐左上角)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_display_image(const char* in_path, DSPRect in_rect,
+			int in_is_stretched);
+
+/**
+\brief 在UI层显示GIF图像
+\attention 调用者应该确认指定的矩形区域在图形有效范围内 \n
+若是GIF87a格式，则只显示一幅静态图片 \n
+若是GIF89a格式且有多帧图像，则循环显示 \n
+此函数必须与::DSP_graphics_ui_stop_display_gif配对调用，否则无法释放显示资源
+
+\param[in] in_path GIF图像路径名
+\param[in] in_rect 指定显示的矩形区域
+\param[in] in_is_stretched 是否伸缩(若不伸缩则将图片在矩形区域内原样大小显示，并对齐左上角)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+
+\see \n
+::DSP_graphics_ui_stop_display_gif
+*/
+int DSP_graphics_ui_display_gif(const char* in_path, DSPRect in_rect,
+			int in_is_stretched);
+
+/**
+\brief 停止UI层动画的显示
+\attention 应该确认与::DSP_graphics_ui_display_gif的调用配对 \n
+in_path和in_rect应与启动动画时传递给::DSP_graphics_ui_display_gif的参数完全相同
+
+\param[in] in_path GIF图像路径名
+\param[in] in_rect 指定显示的矩形区域
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+
+\see \n
+::DSP_graphics_ui_display_gif
+*/
+int DSP_graphics_ui_stop_display_gif(const char* in_path, DSPRect in_rect);
+
+/**
+\brief 将UI层指定矩形区域内的像素保存到指定的内存区域内
+\attention 调用者应该确认指定的矩形区域在图形的有效范围内 \n
+调用者应该确认申请的内存区域足够大，以保存指定区域内的像素值(每个像素4个字节) \n
+
+\param[in] inrect 指定保存的矩形区域
+\param[in] buffer 存储像素值的内存指针
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_save_rect_buffer(DSPRect inrect, char *buffer);
+
+/**
+\brief 将保存在内存中的像素显示到UI层的指定区域内
+\attention 调用者应该确认指定的矩形区域在图形的有效范围内 \n
+调用者应该确认内存区域内的数据足够填充指定的矩形区域(每个像素4个字节)	\n
+
+\param[in] inrect 指定显示的矩形区域
+\param[in] buffer 保存像素值的内存指针
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_ui_display_rect_buffer(DSPRect inrect, const char *buffer);
+
+
+/*******************************************************************************************
+                                    浏览器接口
+ *******************************************************************************************/
+
+/**
+\brief 在UI层显示一幅图片
+\attention 调用者应该确认指定的矩形区域在图形有效范围内 \n
+GIF动画的显示请调用::DSP_graphics_ui_display_gif	\n
+本接口供浏览器调用，用于在UI层显示文件名指定的图片	\n
+在浏览器层显示图片由浏览器在内存中准备数据，调用::DSP_graphics_display_rect_buffer实现
+
+\param[in] in_path 图片路径名
+\param[in] in_rect 指定显示的矩形区域
+\param[in] in_is_stretched 是否伸缩(若不伸缩则将图片在矩形区域内原样大小显示，并对齐左上角)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_display_image(const char* in_path, DSPRect in_rect,
+			int in_is_stretched);
+
+
+/**
+\brief 在UI层以指定的颜色填充一块矩形区域
+\attention 调用者应确认矩形区域在图形有效区域内 \n
+本接口供浏览器使用，实现与::DSP_graphics_ui_fill_rectangle完全一样的功能
+
+\param[in] in_rect 指定的矩形区域
+\param[in] in_color 填充颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_fill_rectangle(DSPRect in_rect, int in_color);
+
+
+/**
+\brief 给定字体、大小、颜色，在UI层从指定位置开始显示指定文本
+\attention 调用者应确认显示的起始位置在图形有效区域内	\n
+本接口供浏览器使用，用于输入法显示
+
+\param[in] in_font	字体文件
+\param[in] in_text 需要显示的文本内容所在的字符串
+\param[in] in_len 需要显示的文本长度(strlen)
+\param[in] in_x 显示区域的左上角横坐标
+\param[in] in_y 显示区域的左上角纵坐标
+\param[in] in_font_width 单个字符的显示宽度
+\param[in] in_font_height 单个字符的显示高度
+\param[in] in_color 字符颜色
+\param[in] in_bgcolor 文本区域背景颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_display_text(const char* in_font, const char* in_text,
+		int in_len,	int in_x, int in_y, int in_font_width,
+		int in_font_height,	int in_color, int in_bgcolor);
+
+
+/**
+\brief 将保存在内存中的像素显示到浏览器层的指定区域内
+\attention 调用者应该确认指定的矩形区域在图形的有效范围内 \n
+调用者应该确认内存区域内的数据足够填充指定的矩形区域(每个像素4个字节)	\n
+
+\param[in] in_osd_x 内存中图像的原点显示在图形中目标位置的横坐标
+\param[in] in_osd_y 内存中图像的原点显示在图形中目标位置的纵坐标
+\param[in] in_pdata 保存像素值的内存指针
+\param[in] in_update_x 内存中图像更新区域的左上角横坐标
+\param[in] in_update_y 内存中图像更新区域的左上角纵坐标
+\param[in] in_update_width 内存中图像更新区域的宽度
+\param[in] in_update_height 内存中图像更新区域的高度
+\param[in] in_pitch 内存中图像的行宽(每个像素4字节)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_display_rect_buffer(int in_osd_x, int in_osd_y,
+		const char *in_pdata, int in_update_x, int in_update_y,
+        int in_update_width, int in_update_height, int in_pitch);
+
+/**
+\brief 将保存在内存中的像素显示到浏览器层(指定层、指定特效)的指定区域内
+\attention 调用者应该确认指定的矩形区域在图形的有效范围内 \n
+调用者应该确认内存区域内的数据足够填充指定的矩形区域(每个像素4个字节)	\n
+目前不支持特效和指定的窗口层，填充整个浏览器层
+
+\param[in] in_osd_x 内存中图像的原点显示在图形中目标位置的横坐标
+\param[in] in_osd_y 内存中图像的原点显示在图形中目标位置的纵坐标
+\param[in] in_pdata 保存像素值的内存指针
+\param[in] in_update_x 内存中图像更新区域的左上角横坐标
+\param[in] in_update_y 内存中图像更新区域的左上角纵坐标
+\param[in] in_update_width 内存中图像更新区域的宽度
+\param[in] in_update_height 内存中图像更新区域的高度
+\param[in] in_pitch 内存中图像的行宽(每个像素4字节)
+\param[in] effect 指定的特效(目前不支持)
+\param[in] level 浏览器中指定的层(目前不支持)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_display_rect_buffer_byparms(
+		int in_osd_x,	/* the target start x corresponding to origin of in_pdata (not to in_update_x) */
+		int in_osd_y,	/* the target start y corresponding to origin of in_pdata (not to in_update_y) */
+		const char *in_pdata,	/* buffer containing image data */
+		int in_update_x,	/* left bound of update region in in_pdata */
+		int in_update_y,	/* top bound of update region in in_pdata */
+		int in_update_width,	/* width of update region */
+		int in_update_height,	/* height of update region */
+		int in_pitch,			/* pitch of in_pdata */
+		int effect, 	/* display effect */
+		int level);		/* display destination level */
+
+/**
+\brief 用指定的颜色清除浏览器中指定的层 \n
+主要用于多窗口层叠加时关闭窗口时将该窗口层清除
+\attention 目前浏览器只支持一个窗口层，清除整个浏览器层
+
+\param[in] level 浏览器中指定的窗口层
+\param[in] color 清屏的颜色
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+void DSP_graphics_clear_surfacebylevel(int level, int color);
+
+/*******************************************************************************************
+                                    背景相关接口
+ *******************************************************************************************/
+
+
+/**
+\brief 设置图形的背景图片
+\attention 默认将图片伸缩到屏幕范围显示
+
+\param[in] backgroundimgpath 背景图片的路径名
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_SetBackGround(const char *backgroundimgpath);
+
+/**
+\brief 清除图形的背景
+\attention 默认将图形的背景设为全透明
+
+\param 无
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_unSetBackGround(void);
+
+/**
+\brief 清除图形的某块区域，将图形背景层和图形浏览器层设为全透明，可以透出下面的视频层
+\attention 调用者应该确认指定的区域在图形的有效范围内
+
+\param[in] x 清除区域的左上角横坐标
+\param[in] y 清除区域的左上角纵坐标
+\param[in] width 清除区域的宽度
+\param[in] height 清除区域的高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_clearscreen(int x, int y, int width, int height);
+
+/**
+\brief 清除图形的某块区域，将图形背景层和图形浏览器层设为全透明，可以透出下面的视频层
+\attention 调用者应该确认指定的区域在图形的有效范围内 \n
+这个函数期望实现什么与::DSP_graphics_clearscreen不同的功能???
+
+\param[in] x 清除区域的左上角横坐标
+\param[in] y 清除区域的左上角纵坐标
+\param[in] width 清除区域的宽度
+\param[in] height 清除区域的高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_clearscreen2(int x, int y, int width, int height);
+
+/**
+\brief 恢复清除的图形区域1
+\attention 为什么连参数都没有，加个恢复区域的参数可扩展性不更好吗?
+
+\param 无
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_unSetScreen(void);
+
+/**
+\brief 恢复清除的图形区域2
+\attention 为什么连参数都没有，加个恢复区域的参数可扩展性不更好吗?
+
+\param
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_unSetScreen2(void);
+
+#ifdef DSP_GRAPHICS_PRE_EXTEND
+/**
+\brief 初始化图形
+\attention 只初始化图形操作，系统的初始化和显示输出的初始化在这之前应该完成
+
+\param[in] width 图形表面绘图像素宽度
+\param[in] height 图像表面绘图像素高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+ */
+int DSP_graphics_Init(int width, int height);
+
+/**
+\brief 在OSD层显示一幅图片
+\attention 调用者应该确认指定的矩形区域在图形有效范围内 \n
+GIF动画的显示请调用::DSP_graphics_osd_display_gif
+
+\param[in] in_path 图片路径名
+\param[in] in_rect 指定显示的矩形区域
+\param[in] in_is_stretched 是否伸缩(若不伸缩则将图片在矩形区域内原样大小显示，并对齐左上角)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_osd_display_image(const char* in_path,
+		DSPRect in_rect, int in_is_stretched);
+
+/**
+\brief 在OSD层显示GIF图像
+\attention 调用者应该确认指定的矩形区域在图形有效范围内 \n
+若是GIF87a格式，则只显示一幅静态图片 \n
+若是GIF89a格式且有多帧图像，则循环显示 \n
+此函数必须与::DSP_graphics_osd_stop_display_gif配对调用，否则无法释放显示资源
+
+\param[in] in_path GIF图像路径名
+\param[in] in_rect 指定显示的矩形区域
+\param[in] in_is_stretched 是否伸缩(若不伸缩则将图片在矩形区域内原样大小显示，并对齐左上角)
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+
+\see \n
+::DSP_graphics_osd_stop_display_gif
+*/
+int DSP_graphics_osd_display_gif(const char* in_path,
+		DSPRect in_rect, int in_is_stretched);
+
+/**
+\brief 停止OSD层动画的显示
+\attention 应该确认与::DSP_graphics_osd_display_gif的调用配对 \n
+in_path和in_rect应与启动动画时传递给::DSP_graphics_osd_display_gif的参数完全相同
+
+\param[in] in_path GIF图像路径名
+\param[in] in_rect 指定显示的矩形区域
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+
+\see \n
+::DSP_graphics_osd_display_gif
+*/
+int DSP_graphics_osd_stop_display_gif(const char* in_path, DSPRect in_rect);
+
+/**
+\brief 清除图形的某块区域，将图形背景层和图形浏览器层设为全透明，可以透出下面的视频层
+\attention 调用者应该确认指定的区域在图形的有效范围内(目前为{0,0,1280,720}) \n
+
+\param[in] x 清除区域的左上角横坐标
+\param[in] y 清除区域的左上角纵坐标
+\param[in] width 清除区域的宽度
+\param[in] height 清除区域的高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_clear_screen(int x, int y, int width, int height);
+
+/**
+\brief 恢复已经清除的图形区域
+\attention 调用者应该确认指定的区域在图形的有效范围内(目前为{0,0,1280,720}) \n
+恢复的区域应该先前被清除过，并且区域的参数与清除时的参数完全相同。
+
+\param[in] x 恢复区域的左上角横坐标
+\param[in] y 恢复区域的左上角纵坐标
+\param[in] width 恢复区域的宽度
+\param[in] height 恢复区域的高度
+
+\retval ::DSP_GRAPHICS_SUCCESS 成功
+\retval ::DSP_GRAPHICS_FAIL 失败
+*/
+int DSP_graphics_unset_screen(int x, int y, int width, int height);
+
+#endif
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif
+
+
+

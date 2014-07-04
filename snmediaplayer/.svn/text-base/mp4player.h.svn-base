@@ -1,0 +1,76 @@
+#ifndef _MP4PLAYER_H
+#define _MP4PLAYER_H
+
+#include "commonplayer.h"
+
+
+
+
+struct MP4PlayerConfig
+{
+	enum AudioCodectype atype;
+	enum VideoCodecType vtype;
+	unsigned char configvideo[256];
+	unsigned char configaudio[256];
+	unsigned long videodsisize;
+	unsigned long audiodsisize;
+	unsigned long videotimescale;
+	unsigned long audiotimescale;
+	int audiosamplerate;
+} ;
+
+
+/** when the sample got corresponds to the first bytes of an Access Unit */
+#define DSPMP4_AU_START         0x01
+/** when the last byte of the sample got corresponds to the last byte of an Access Unit */
+#define DSPMP4_AU_END           0x02
+/** not used in mp4core (divx ?) */
+#define DSPMP4_AU_DISCONTINUITY 0x04
+/** when the CTS and DTS fields are valids */
+#define DSPMP4_CTS_VALID        0x08
+/** not used in mp4core (divx ?) */
+#define DSPMP4_NEED_HEADER      0x10
+
+/** maximum number of tracks per mp4 file */
+#define DSPMP4_MAXTRACKS 1024
+
+/**
+   structure that contains a sample. The buffer must be allocated by
+   the external application. flags is used to know if this is the
+   start of an AU or/and the end of an AU.
+*/
+typedef struct tagDSPmp4Sample {	
+	unsigned long size;            /* size read */
+	unsigned char *buf;             /* pointer to data */
+	unsigned long DTS_LSB;         /* lowest significant part of Decoding Time Stamp */
+	unsigned long DTS_MSB;         /* highest significant part of Decoding Time Stamp */
+	unsigned long CTS_LSB;         /* lowest significant part of Presentation Time Stamp */
+	unsigned long CTS_MSB;         /* highest significant part of Presentation Time Stamp */
+	unsigned long flags;           /* bit field with above values */
+} DSPmp4Sample;
+
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+DSPFP_RETVALUE DSP_MP4Player_Open(int *pMP4Playerhandle,struct MP4PlayerConfig *configinfo);
+DSPFP_RETVALUE DSP_MP4Player_Close(int MP4Playerhandle);
+DSPFP_RETVALUE DSP_MP4Player_Reset(int MP4Playerhandle, DSPStopmode mode);
+//dma
+DSPFP_RETVALUE DSP_MP4Player_GetBuffer(int MP4Playerhandle, unsigned int *bufsize, unsigned char **buf);
+DSPFP_RETVALUE DSP_MP4Player_ReleaseBuffer(int MP4Playerhandle, unsigned char *buf);
+DSPFP_RETVALUE DSP_MP4Player_SendAudioData(int MP4Playerhandle, DSPmp4Sample *audiosample);
+DSPFP_RETVALUE DSP_MP4Player_SendVideoData(int MP4Playerhandle, DSPmp4Sample  *videosample);
+DSPFP_RETVALUE DSP_MP4Player_Play(int MP4Playerhandle, enum DSPPlaymode mode, int speed);
+DSPFP_RETVALUE DSP_MP4Player_Stop(int MP4Playerhandle, enum DSPStopmode mode);
+DSPFP_RETVALUE DSP_MP4Player_Pause(int MP4Playerhandle);
+DSPFP_RETVALUE DSP_MP4Player_GetVolumeIndex(int MP4Playerhandle, int *index);
+DSPFP_RETVALUE DSP_MP4Player_SetVolumeIndex(int MP4Playerhandle, int index);
+DSPFP_RETVALUE DSP_MP4Player_Setlocation(int MP4Playerhandle, unsigned int X, unsigned int Y, unsigned int Width, unsigned int Height);
+#if defined(__cplusplus)
+}
+#endif
+//°´±ÈÀý
+#endif
+

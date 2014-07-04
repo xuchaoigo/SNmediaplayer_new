@@ -1,0 +1,427 @@
+
+#include "SNmediaplayer.h"
+#include "StreamMediaPlayer.h"
+#include "LocalFilePlayer.h"
+#include "StreamMp4Player.h"
+
+#include "common_setting.h"
+
+SNmediaplayer::SNmediaplayer(void *mpobject, MediaplayerStateChangeCallback playstate_func)
+{
+	if(sn_real_mediaplayer[0]&&sn_real_mediaplayer[1])
+		sn_instanceid=0;
+	else if(sn_real_mediaplayer[0])
+		sn_instanceid=1;
+	else if(sn_real_mediaplayer[1])
+		sn_instanceid=0;
+	else
+		sn_instanceid=0;
+	read_volume_index(&sn_volume);
+	sn_playmode=0;
+	sn_videoDisplayMode=0;
+	sn_videoDisplayrect.x=0;
+	sn_videoDisplayrect.y=0;
+	sn_videoDisplayrect.width=DFB_OSD_WIDTH;
+	sn_videoDisplayrect.height=DFB_OSD_HEIGHT;
+	sn_muteflag=ifmute();
+	sn_nativeUIFlag=1;
+	sn_muteUIFlag=1;
+	sn_audioVolumeUIFlag=1;
+	sn_audioTrackUIFlag=1;
+	sn_progressBarUIFlag=1;
+	sn_channelNoUIFlag=1;
+	sn_subtitileFlag=0;
+	sn_videoAlpha=0;
+	sn_allowTrickmodeFlag=1;
+	sn_playlistFlag=0;
+	sn_cycleFlag=0;
+	sn_randomFlag=0;
+	sn_autoDelFlag=0;
+	sn_speed=0;
+	sn_playstate_func=playstate_func;
+	sn_mpobject=mpobject;
+}
+
+RealizeSNmediaplayer * SNmediaplayer::sn_real_mediaplayer[MAX_PLAYER_NUM]={NULL,NULL};
+
+SNmediaplayer::~ SNmediaplayer()
+{
+
+}
+
+play_state SNmediaplayer::getPlayState()
+{
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return PLAYERSTATE_PREINIT;
+	return sn_real_mediaplayer[sn_instanceid]->getPlayState();
+}
+
+int SNmediaplayer::bindNativePlayerInstance(unsigned char nativePlayerInstanceID)
+{
+	if(nativePlayerInstanceID>=MAX_PLAYER_NUM || nativePlayerInstanceID <0)
+		return -1;
+	sn_instanceid=nativePlayerInstanceID;
+	return 0;
+}
+int SNmediaplayer::getMuteFlag()
+{
+	sn_muteflag=ifmute();
+	  
+	return sn_muteflag;
+}
+
+int SNmediaplayer::initMediaPlayer(unsigned char nativePlayerinstanceID, int playlistFlag, int videoDisplayMode, 
+	int height, int width, int left, int top, int muteFlag,  int useNativeUIFlag, int subtitleFlag, 
+	int videoAlpha, int cycleFlag, int randomFlag, int autoDelFlag)
+{
+	sn_instanceid =nativePlayerinstanceID;
+	sn_videoDisplayMode=videoDisplayMode;
+	sn_videoDisplayrect.x=left;
+	sn_videoDisplayrect.y=top;
+	sn_videoDisplayrect.width=width;
+	sn_videoDisplayrect.height=height;
+	sn_muteflag=muteFlag;
+	sn_nativeUIFlag=useNativeUIFlag;
+	sn_subtitileFlag=subtitleFlag;
+	sn_videoAlpha=videoAlpha;
+	sn_playlistFlag=playlistFlag;
+	sn_cycleFlag=cycleFlag;
+	sn_randomFlag=randomFlag;
+	sn_autoDelFlag=autoDelFlag;
+	return 0;
+}
+
+int SNmediaplayer::releaseMediaPlayer (unsigned char nativePlayerInstanceID)
+{
+	printf("release player %d\n", nativePlayerInstanceID);
+	if(sn_real_mediaplayer[nativePlayerInstanceID]!=NULL)
+		delete sn_real_mediaplayer[nativePlayerInstanceID];
+	sn_real_mediaplayer[nativePlayerInstanceID]=NULL;
+	return 0;
+}
+
+int SNmediaplayer::releaseNativePlayer (unsigned char nativePlayerInstanceID)
+{
+	printf("releaseNativePlayerreleaseNativePlayer %d\n\n",nativePlayerInstanceID);
+	if(sn_real_mediaplayer[sn_instanceid]!=NULL)
+	{
+		printf("delete sn_real_mediaplayer %d\n\n",sn_instanceid);
+
+		delete sn_real_mediaplayer[sn_instanceid];
+	}
+	sn_real_mediaplayer[sn_instanceid]=NULL;
+	return 0;
+}
+
+int SNmediaplayer::leaveChannel()
+{
+	printf("xuc: SNmediaplayer leaveChannel\n");
+	if(sn_real_mediaplayer[sn_instanceid]!=NULL)
+	{
+		sn_real_mediaplayer[sn_instanceid]->leaveChannel();
+	}
+	return 0;
+}
+int SNmediaplayer::getVolume()
+{
+	/*if(sn_muteflag)
+		return 0;*/
+	read_volume_index(&sn_volume);
+	sn_volume = sn_volume << 1; /* SN volume 0~100, 3N volume 0~50, using same setting.xml WHT*/
+	return sn_volume;
+}
+
+void SNmediaplayer::setVolume(int volume_value)
+{
+	sn_volume = volume_value;
+	printf("1set volume is %d\n",sn_volume);
+	save_volume_index(volume_value>>1); /* SN volume 0~100, 3N volume 0~50, using same setting.xml WHT*/
+	sn_muteflag=0;
+	if(sn_real_mediaplayer[sn_instanceid]!=NULL)
+		sn_real_mediaplayer[sn_instanceid]->player_setvolume(sn_volume);
+	return;
+}
+
+unsigned char SNmediaplayer::getNativePlayerInstanceIDByType(int type)
+{
+	if(type==0)
+		return 0;
+	else if(type==2)
+		return 1;
+	else 
+		return 0;
+}
+
+int SNmediaplayer::setSingleMedia(string mediaStr)
+{
+	sn_json_str=mediaStr;
+
+	if(!sn_real_mediaplayer[sn_instanceid])
+		sn_real_mediaplayer[sn_instanceid]=new StreamMediaPlayer
+			(sn_instanceid,sn_videoDisplayMode, sn_playmode,sn_videoDisplayrect.height,sn_videoDisplayrect.width,
+			sn_videoDisplayrect.x,sn_videoDisplayrect.y,sn_muteflag,sn_muteUIFlag,sn_subtitileFlag,
+			sn_videoAlpha,sn_cycleFlag,sn_randomFlag,sn_autoDelFlag,sn_json_str,sn_nativeUIFlag,
+			sn_audioVolumeUIFlag,sn_audioTrackUIFlag,sn_progressBarUIFlag,sn_channelNoUIFlag,
+			sn_allowTrickmodeFlag,sn_speed,sn_volume,sn_pipmode,sn_mpobject,sn_playstate_func);
+		
+	if(sn_real_mediaplayer[sn_instanceid])
+		return sn_real_mediaplayer[sn_instanceid]->setSingleMedia(mediaStr);
+	return 0;
+
+}
+int SNmediaplayer::playFromStart()
+{
+	if(!sn_real_mediaplayer[sn_instanceid])
+		sn_real_mediaplayer[sn_instanceid]=new StreamMediaPlayer
+			(sn_instanceid,sn_videoDisplayMode, sn_playmode,sn_videoDisplayrect.height,sn_videoDisplayrect.width,
+			sn_videoDisplayrect.x,sn_videoDisplayrect.y,sn_muteflag,sn_muteUIFlag,sn_subtitileFlag,
+			sn_videoAlpha,sn_cycleFlag,sn_randomFlag,sn_autoDelFlag,sn_json_str,sn_nativeUIFlag,
+			sn_audioVolumeUIFlag,sn_audioTrackUIFlag,sn_progressBarUIFlag,sn_channelNoUIFlag,
+			sn_allowTrickmodeFlag,sn_speed,sn_volume,sn_pipmode,sn_mpobject,sn_playstate_func);
+
+	return sn_real_mediaplayer[sn_instanceid]->playFromStart();
+
+}
+
+int SNmediaplayer::playByTime(int type, int timestamp,int speed)
+{
+	if(!sn_real_mediaplayer[sn_instanceid])
+		sn_real_mediaplayer[sn_instanceid]=new StreamMediaPlayer
+			(sn_instanceid,sn_videoDisplayMode, sn_playmode,sn_videoDisplayrect.height,sn_videoDisplayrect.width,
+			sn_videoDisplayrect.x,sn_videoDisplayrect.y,sn_muteflag,sn_muteUIFlag,sn_subtitileFlag,
+			sn_videoAlpha,sn_cycleFlag,sn_randomFlag,sn_autoDelFlag,sn_json_str,sn_nativeUIFlag,
+			sn_audioVolumeUIFlag,sn_audioTrackUIFlag,sn_progressBarUIFlag,sn_channelNoUIFlag,
+			sn_allowTrickmodeFlag,speed,sn_volume,sn_pipmode,sn_mpobject,sn_playstate_func);
+	return sn_real_mediaplayer[sn_instanceid]->playByTime(type,timestamp,speed);
+}
+
+int SNmediaplayer::stop()
+{
+	int ret;
+
+	printf("stop snmediaplayer %d\n",sn_instanceid);
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return 0;
+		
+	ret=sn_real_mediaplayer[sn_instanceid]->stop();
+
+	return 0;
+}
+int SNmediaplayer::refreshVideoDisplay()
+{
+	printf("sn_instanceid = %d\n", sn_instanceid);
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return 0;
+	return sn_real_mediaplayer[sn_instanceid]->refreshVideoDisplay();
+}
+void SNmediaplayer::setVideoDisplayMode(int vDisplayMode)
+{
+	sn_videoDisplayMode=vDisplayMode;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	printf("SNmediaplayer::setVideoDisplayMode!!!,sn_videoDisplayMode is %d\n",sn_videoDisplayMode);
+	return sn_real_mediaplayer[sn_instanceid]->setVideoDisplayMode(vDisplayMode);
+}
+void SNmediaplayer::setVideoDisplayArea(int left, int top, int width, int height)
+{
+	sn_videoDisplayrect.x=left;
+	sn_videoDisplayrect.y=top;
+	sn_videoDisplayrect.width=width;
+	sn_videoDisplayrect.height=height;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setVideoDisplayArea(left, top, width, height);
+}
+void SNmediaplayer::setMuteFlag(int mute_flag)
+{
+	sn_muteflag=mute_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	printf("sn_muteflag is %d\n",sn_muteflag);
+	if(sn_muteflag)//静音
+		setmute();
+	else
+		unsetmute();
+
+	return sn_real_mediaplayer[sn_instanceid]->setMuteFlag(mute_flag);
+}
+
+void SNmediaplayer::setNativeUIFlag (int nativeUI_flag)
+{
+	sn_nativeUIFlag=nativeUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setNativeUIFlag(nativeUI_flag);
+}
+void SNmediaplayer::setMuteUIFlag (int muteUI_flag)
+{
+	sn_muteUIFlag=muteUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setMuteUIFlag(muteUI_flag);
+}
+void SNmediaplayer::setAudioVolumeUIFlag (int audioVolumeUI_flag)
+{
+	sn_audioVolumeUIFlag=audioVolumeUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setAudioVolumeUIFlag(audioVolumeUI_flag);
+}
+void SNmediaplayer::setAudioTrackUIFlag (int audioTrackUI_flag)
+{
+	sn_audioTrackUIFlag=audioTrackUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setAudioTrackUIFlag(audioTrackUI_flag);
+}
+void SNmediaplayer::setProgressBarUIFlag (int progressBarUI_flag)
+{
+	sn_progressBarUIFlag=progressBarUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+
+	return sn_real_mediaplayer[sn_instanceid]->setProgressBarUIFlag(progressBarUI_flag);
+}
+void SNmediaplayer::setChannelNoUIFlag (int channelNoUI_flag)
+{
+	sn_channelNoUIFlag=channelNoUI_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setChannelNoUIFlag(channelNoUI_flag);
+}
+void SNmediaplayer::setSubtitileFlag (int subtitile_flag)
+{
+	sn_subtitileFlag=subtitile_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setSubtitileFlag(subtitile_flag);
+}
+void SNmediaplayer::setVideoAlpha (int vAlpha)
+{
+	sn_videoAlpha=vAlpha;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setVideoAlpha(vAlpha);
+}
+void SNmediaplayer::setAllowTrickmodeFlag (int allowTrickmode_flag)
+{
+	sn_allowTrickmodeFlag=allowTrickmode_flag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setAllowTrickmodeFlag(allowTrickmode_flag);
+}
+void SNmediaplayer::setCycleFlag (int cycleFlag)
+{
+	sn_cycleFlag=cycleFlag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setCycleFlag(cycleFlag);
+}
+void SNmediaplayer::setRandomFlag (int andomFlag)
+{
+	sn_randomFlag=andomFlag;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+	
+	return sn_real_mediaplayer[sn_instanceid]->setRandomFlag(andomFlag);
+}
+void SNmediaplayer::setPIPVideoMode(int mode)
+{
+	sn_pipmode=mode;
+	if(!sn_real_mediaplayer[sn_instanceid])
+		return;
+
+	return sn_real_mediaplayer[sn_instanceid]->setPIPVideoMode(mode);
+}
+
+vector<string> SNmediaplayer::sn_channel_list;
+vector<int> SNmediaplayer::userchannelid_list;
+
+
+int SNmediaplayer::registerChannel(string channel_info)
+{
+	//cout<<"add channel"<<channel_info<<endl;
+
+	sn_channel_list.push_back(channel_info);
+
+	string tmpuserchannelid;
+	int tmpid=0;
+
+	size_t fstart, fend;
+	fstart=channel_info.find("UserChannelID=\"");
+
+	if (fstart!=string::npos)
+	{	
+		fstart += strlen("UserChannelID=\"");
+
+		fend=channel_info.find("\"",fstart);
+		if (fend!=string::npos)
+		{
+			tmpuserchannelid = channel_info.substr(fstart,fend-fstart);
+			tmpid = atoi(tmpuserchannelid.c_str());
+			cout<<"tmpuserchannelid is "<<tmpuserchannelid<<endl;
+		}
+	}
+
+	userchannelid_list.push_back(tmpid);
+	return 0;
+}
+
+int SNmediaplayer::joinChannel(int userchannelid)
+{
+	unsigned int i;
+	//int truechannel= (userchannelid>0)?userchannelid-1:0;
+
+	//cout<<"join channel"<<truechannel<<"sn_channel_list.size()"<<SNmediaplayer::sn_channel_list.size()<<endl;
+
+	for(i=0;i < SNmediaplayer::sn_channel_list.size();i++)
+	{
+		if(SNmediaplayer::userchannelid_list.at(i) == userchannelid)
+			break;
+	}
+
+	if(i >= SNmediaplayer::sn_channel_list.size())
+	{
+		printf("not find userid  \n");
+		return -1;
+	}
+	
+
+	if(!sn_real_mediaplayer[sn_instanceid])
+		sn_real_mediaplayer[sn_instanceid]=new StreamMediaPlayer
+			(sn_instanceid, sn_videoDisplayMode, sn_playmode,sn_videoDisplayrect.height,sn_videoDisplayrect.width,
+			sn_videoDisplayrect.x,sn_videoDisplayrect.y,sn_muteflag,sn_muteUIFlag,sn_subtitileFlag,
+			sn_videoAlpha,sn_cycleFlag,sn_randomFlag,sn_autoDelFlag,sn_json_str,sn_nativeUIFlag,
+			sn_audioVolumeUIFlag,sn_audioTrackUIFlag,sn_progressBarUIFlag,sn_channelNoUIFlag,
+			sn_allowTrickmodeFlag,1,sn_volume,sn_pipmode,sn_mpobject,sn_playstate_func);
+
+	
+	//cout<<"join channel"<<truechannel<<endl;
+	return sn_real_mediaplayer[sn_instanceid]->joinChannel(userchannelid,SNmediaplayer::sn_channel_list.at(i));
+
+}
+
+
+/*获取当前播放的媒体的EntryID*/
+string SNmediaplayer::getEntryID()
+{
+	return "entryid";
+}//可选的
+
+	/*字符串，用JSON格式的字符串，封装播放列表数据。*/
+string SNmediaplayer::getPlaylist()
+{
+	return "undefined";
+}//可选的
+
+

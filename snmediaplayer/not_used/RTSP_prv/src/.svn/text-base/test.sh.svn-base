@@ -1,0 +1,6 @@
+#make test
+
+make
+cp rtsp ~/nfs/hisi
+echo cp rtsp ~/nfs/hisi
+

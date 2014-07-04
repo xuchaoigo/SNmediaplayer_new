@@ -1,0 +1,13 @@
+#ifndef _DVBPLAYER_H
+#define _DVBPLAYER_H
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+	
+long DSP_DVBplay(long Freq);
+
+#if defined(__cplusplus)
+}
+#endif
+#endif

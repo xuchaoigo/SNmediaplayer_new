@@ -1,0 +1,869 @@
+/*****************************************************************************************
+ipqam_test.c is writen for testing the max bitrate send from test server to stb through UNA and ipqam within a 
+determinate bit error rate . 
+luml 2010.8.10
+******************************************************************************************/
+
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <netinet/in.h>
+#include <netdb.h> 
+#include <unistd.h> 
+#include <pthread.h>
+#include <arpa/inet.h>
+#include <linux/if.h>
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include<errno.h>
+#include<math.h>
+//#include <net/if.h>
+#include <fcntl.h>
+#include <linux/if_tun.h>
+#include "nexus_platform.h"
+#include "nexus_pid_channel.h"
+#include "nexus_parser_band.h"
+#include "nexus_message.h"
+//#include "../dsp_porting/include/dsp_porting.h"
+
+#define TS_READ_16( BUF ) ((uint16_t)((BUF)[0]<<8|(BUF)[1]))
+#define TS_PSI_GET_SECTION_LENGTH( BUF )    (uint16_t)(TS_READ_16( &(BUF)[1] ) & 0x0FFF)	
+
+#define IPQAM_RET_FAILED -1
+#define IPQAM_RET_OK 0
+
+typedef  struct cable_par
+{
+    uint32_t  freq;
+    uint32_t  symb;
+    uint32_t annex;
+    uint32_t qam;   
+    uint32_t pnid;
+}Cable_Par;
+
+uint8_t ccgw_infostring[100] = {"192.168.8.101:6000"};
+long ccgw_ip = 0;
+uint8_t ccgw_ip_string[64] =  "192.168.8.101";
+uint32_t ccgw_port = 6000;
+uint8_t ipqam_infostring[32] = {"1000000:2:1"};
+uint32_t ipqam_download_pid = 0;
+
+uint8_t local_ip_addr[64] = "192.168.8.75";
+uint16_t local_message_port = 10000;
+uint8_t local_virtual_address[64] =  "10.0.0.1";
+
+uint16_t local_port = 10000;
+uint8_t register_msg_version[] = "0.1";
+uint8_t register_msg_name[] = "REGISTER_1";
+uint16_t register_msg_num = 0;
+uint8_t register_msg_user[] = "BMG0001018202200";
+uint8_t register_msg_pwd[] = "123456";
+uint8_t register_msg_name_alive[] = "ALIVE";
+
+
+Cable_Par carousel_cab_par={
+    6080000,  //freq 608MHz
+    68750,  // samplerate
+    1,    // anex a
+    64,  // 64qam
+    1  //pnid 1
+};
+Cable_Par download_cab_par;
+
+static int32_t GetLocalIP(uint8_t *name, uint8_t *localIPaddr)
+{
+    struct ifreq ifr;
+    struct sockaddr_in *lip;
+    int32_t socket_get_ip;
+    
+    if((socket_get_ip = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
+        printf("get local ip: open socket err\n");
+        return -1;
+    }
+    memset(&ifr, sizeof(ifr), 0);
+    strcpy(ifr.ifr_name, name);
+    if(ioctl(socket_get_ip, SIOCGIFADDR,&ifr)<0)
+    {
+        printf("get IFADDR err\n");
+        return -1;
+    }
+    lip = (struct sockaddr_in *)&ifr.ifr_addr;
+    strcpy(localIPaddr,inet_ntoa(lip->sin_addr)); 
+    close(socket_get_ip);
+    return 0;
+}
+
+
+static int32_t SetLocalIP(uint8_t *name, uint8_t *localIPaddr)
+{
+    struct sockaddr_in sin; 
+    struct ifreq ifr; 
+    int fd; 
+
+    int ret; 
+    char *ptr;	
+    short found_colon   =   0;	
+
+    memset(&ifr, sizeof(struct   ifreq), 0);	
+    if   (name   ==   NULL) 
+        return -1; 
+    if   (localIPaddr   ==   NULL) 
+        return -1; 
+  
+    if((fd = socket(AF_INET, SOCK_DGRAM, 0))==-1)
+    { 
+        perror( "Not   create   network   socket   connection\n "); 
+        return -1; 
+    } 
+
+    strncpy(ifr.ifr_name, name, IFNAMSIZ); 
+    ifr.ifr_name[IFNAMSIZ-1]   =   0; 
+    memset(&sin,   0,   sizeof(sin)); 
+    sin.sin_family   =   AF_INET; 
+    sin.sin_addr.s_addr   =   inet_addr(localIPaddr); 
+    memcpy(&ifr.ifr_addr,  &sin, sizeof(sin)); 
+
+    if(ioctl(fd,   SIOCSIFADDR,   &ifr)   <   0) 
+    { 
+        perror( "Not   setup   interface\n "); 
+        return -1; 
+    } 
+/*
+    ifr.ifr_flags   |=   IFF_UP   |   IFF_RUNNING; 
+    if   (ioctl(fd, SIOCSIFFLAGS, &ifr)   <   0)   
+    { 
+        perror( "SIOCSIFFLAGS "); 
+        return   -1; 
+    }
+*/    
+    return 0;
+}
+
+/*parse pat and pmt to get channel pid */
+#if 0
+int32_t ipqam_get_channel_info(Cable_Par parm, uint32_t *pid)
+{
+    uint32_t filterID;
+    uint32_t event[3];
+    uint32_t timeout = 100;
+    uint8_t sbuf[1024], buf[12];
+    uint32_t section_len;
+    uint32_t PMT_Pid = 0;
+    uint32_t pat_offset = 8;
+    uint32_t pnum;
+    uint32_t streamNum = 0;
+    uint32_t byteOffset;
+    uint8_t stream_type;
+    uint32_t elementary_Pid;
+    
+    uint8_t coef[8];
+    uint8_t mask[8];
+    uint8_t excl[8];
+    uint32_t sec_len;
+	
+    buf[0] = '0';
+    buf[1] = (parm.freq>> 24) & 0xFF;
+    buf[2] = (parm.freq >> 16) & 0xFF;
+    buf[3] = (parm.freq >>  8) & 0xFF;
+    buf[4] = (parm.freq        ) & 0xFF;
+
+    buf[5] = (parm.symb>> 24) & 0xFF;
+    buf[6] = (parm.symb >> 16) & 0xFF;
+    buf[7] = (parm.symb >> 8) & 0xFF;
+    buf[8] = (parm.symb       ) & 0xFF;
+    buf[9] = (parm.annex) & 0xFF;
+    buf[10] = (parm.qam>>8) & 0xFF;
+    buf[11] = (parm.qam) & 0xFF;
+    DSP_porting_tune_lock(0, buf, 12, 0, 0);
+    
+    coef[0] = 0;
+    mask[0] = 0xff;
+    excl[0] = 0;
+    if ((filterID = DSP_porting_filter_open(0, 1024, 1, coef, mask, excl)) == -1)    //filter PAT
+    {
+		printf("open filter for pat failed\n");
+		return IPQAM_RET_FAILED;
+    }
+	while(timeout)   // get matched PMT
+	{
+		timeout--;
+		if (DSP_porting_filter_poll(filterID, (unsigned int *)event) == 1)
+		{
+
+			if ((section_len=DSP_porting_filter_recv(filterID, sbuf, 1024)))
+			{
+				printf("pat DVB_porting_filter_received %d\n",section_len);
+                            sec_len  =  sbuf[1]&0xf;
+                            sec_len <<= 8;
+                            sec_len += sbuf[2];
+                            sec_len += 3;
+				while(pat_offset < (sec_len-4))
+				{
+					pnum = TS_READ_16(&sbuf[pat_offset]);
+					if(pnum==(unsigned short)parm.pnid)
+					{
+						PMT_Pid = TS_READ_16(&sbuf[pat_offset+2]);
+						PMT_Pid &= 0x1fff;
+						printf("getchannel PMT_Pid %d\n",PMT_Pid);	
+						break;
+					}
+					pat_offset += 4;
+				}
+				if (pat_offset<(sec_len-4))
+					break;
+				else pat_offset = 8;
+			}
+
+		}
+		else
+		{
+			DSP_porting_time_sleep(200);
+		}		
+	}
+	DSP_porting_filter_close(filterID);
+	if (!timeout)
+	{
+		printf("PAT timeout\n");
+		return IPQAM_RET_FAILED;
+	}
+// get PMT	
+
+    coef[0] = 0x02;
+    mask[0] = 0xFF;
+    excl[0] = 0;
+//    coef[1] = (uint8)((parm.pnid >> 8) & 0xFF);
+//    mask[1] = 0xFF;
+//    excl[1] = 0;
+//    coef[2] = (uint8)(parm.pnid  & 0xFF);
+//    mask[2] = 0xFF;
+//    excl[2] = 0;
+    if ((filterID = DSP_porting_filter_open(PMT_Pid, 1024, 1, coef, mask, excl)) == -1)
+    {
+        printf("open demux for pmt failed\n");
+        return IPQAM_RET_FAILED;
+    }
+    timeout = 100;
+    event[0] = 0; event[1] = 0; event[2] = 0;
+    while(timeout)   // get matched PMT
+    {
+        timeout--;
+        if (DSP_porting_filter_poll(filterID, (unsigned int *)event) == 1)
+        {
+            if ((section_len=DSP_porting_filter_recv(filterID, sbuf, 1024)))
+            {
+                sec_len  =  sbuf[1]&0xf;
+                sec_len <<= 8;
+                sec_len += sbuf[2];		
+                sec_len += 3;                            
+
+                byteOffset = 12 + TS_READ_16(&sbuf[10])&0x0fff;
+
+                *pid = TS_READ_16(&sbuf[byteOffset + 1]) & 0x1FFF;}
+                printf("get pid by PMT %d\n",*pid);
+                break;
+            }
+        else
+        {
+            DSP_porting_time_sleep(100);
+        }		
+    }
+    DSP_porting_filter_close(filterID);
+    if (!timeout)
+    {
+        printf("PMT timeout\n");
+        return IPQAM_RET_FAILED;
+    }
+    return   IPQAM_RET_OK;
+}
+#endif
+
+/*merge tvod_getchannelinfo and tvod_play_mpeg can minimize the TV Screen pause period*/
+#if 0
+
+int32_t ipqam_get_carousel_info(Cable_Par parm, uint32_t pid)
+{
+    uint32_t filterID;
+    uint32_t event[3];
+    uint32_t timeout = 100;
+    uint8_t sbuf[1024], buf[12];
+    uint32_t section_len;
+
+     uint8_t *pbuf, *ptr, *ptr1;
+     
+    uint8_t coef[8];
+    uint8_t mask[8];
+    uint8_t excl[8];
+    uint32_t sec_len;
+	
+    buf[0] = '0';
+    buf[1] = (parm.freq>> 24) & 0xFF;
+    buf[2] = (parm.freq >> 16) & 0xFF;
+    buf[3] = (parm.freq >>  8) & 0xFF;
+    buf[4] = (parm.freq        ) & 0xFF;
+
+    buf[5] = (parm.symb>> 24) & 0xFF;
+    buf[6] = (parm.symb >> 16) & 0xFF;
+    buf[7] = (parm.symb >> 8) & 0xFF;
+    buf[8] = (parm.symb       ) & 0xFF;
+    buf[9] = (parm.annex) & 0xFF;
+    buf[10] = (parm.qam>>8) & 0xFF;
+    buf[11] = (parm.qam) & 0xFF;
+    
+    DSP_porting_tune_lock(0, buf, 12, 0, 0);
+    
+
+
+    coef[0] = 0;
+    mask[0] = 0;
+    excl[0] = 0;
+    if ((filterID = DSP_porting_filter_open(pid, 1024, 1, coef, mask, excl)) == -1)    //filter PAT
+    {
+		printf("open filter for carousel failed\n");
+		return IPQAM_RET_FAILED;
+    }
+    while(timeout)
+    {
+		timeout--;
+		if (DSP_porting_filter_poll(filterID, (unsigned int *)event) == 1)
+		{
+
+			if ((section_len=DSP_porting_filter_recv(filterID, sbuf, 1024)))
+			{
+				printf("carousel filter received %d\n",section_len);
+
+                            pbuf = sbuf+8;  // remove the priviate section header
+                            ptr = strchr(pbuf,' ');   // ccwg ingo and ipqam info seperated by blank
+                            ptr[0] = 0;
+                            if(ptr)
+                            {
+                                strcpy(ccgw_infostring, pbuf);
+                                ptr1 = strstr(ptr+1,"\r\n");
+                                if(ptr1)
+                                {
+                                    ptr1[0] = 0;
+                                    strcpy(ipqam_infostring, ptr+1);
+                                    printf("The ccgw_infostring is %s\nThe ipqam_infostring is %s\n",ccgw_infostring,ipqam_infostring);
+                                    /* parse ccgw ip & port */
+                                    if( '[' == ccgw_infostring[0])  //IPv6 addr
+                                    {
+                                        // todo
+                                    }
+                                    else
+                                    {
+                                        ptr = strchr(ccgw_infostring,':');
+                                        if(!ptr) continue;
+                                        ptr[0]= 0;
+                                        strcpy(ccgw_ip_string, ccgw_infostring);
+                                        ccgw_ip = inet_addr(ccgw_infostring);
+                                        ccgw_port = atoi(ptr+1);
+                                    }
+                                    break;
+                                }
+                            }
+			}
+
+            }
+            else
+            {
+                DSP_porting_time_sleep(200);
+            }		
+    }
+    DSP_porting_filter_close(filterID);
+    if (!timeout)
+    {
+        printf("carousel filter timeout\n");
+        return IPQAM_RET_FAILED;
+    }
+
+    return   IPQAM_RET_OK;
+}
+#endif
+
+int32_t ccgw_socket = -1;
+int32_t ccgw_register()
+{
+
+    int ret;
+    uint8_t ip[50] = {0},port[10] = {0},ipqam[50] = {0};
+    uint8_t command[10] = {0},session[30] = {0},cable_parm[50] = {0};
+    /*int session_len,cable_parm_len;*/
+    uint8_t *success = "R_SUCCESS";
+    uint8_t *config = "CONFIG";
+    uint8_t *channel = "HFC";
+    uint8_t *rt_success = "RT_SUCCESS";
+
+    uint8_t message_regist[500];
+    uint8_t message_regist_back[200] = {0};
+
+    
+    uint32_t timeout = 100;
+
+    uint8_t *ptr2,*ptr3,*ptr4;
+    struct sockaddr_in address,address1;
+    int address_len;
+    int type;
+    char cmd[100] = {0};
+    char error_NO[3] = {0};
+
+
+        ccgw_socket = socket(AF_INET,SOCK_STREAM,0);
+        if(ccgw_socket<0)
+            return -1;;
+
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = inet_addr(local_ip_addr);
+        address.sin_port = htons(local_message_port);
+        address_len = sizeof(address);
+        bind(ccgw_socket,(struct sockaddr *)&address,address_len);
+
+        address1.sin_family = AF_INET;
+        address1.sin_addr.s_addr = inet_addr("192.168.8.101");  //ccgw_ip; xyz,20101115
+        address1.sin_port = htons((uint16_t)ccgw_port);
+        address_len = sizeof(address1);
+	printf("register:connect..\n");
+        do
+        {
+            ret = connect(ccgw_socket,(struct sockaddr *)&address1,address_len);
+        }while(ret==-1);
+        printf("Connect to the ccgw success!!!\n");
+        
+	sprintf(message_regist,"%s %s %d %s %s %s:%d %s\n", register_msg_version, register_msg_name, 
+            register_msg_num++, register_msg_user, register_msg_pwd, local_ip_addr, local_message_port, ipqam_infostring);
+
+        printf("register request is: %s\n",message_regist);
+        send(ccgw_socket, message_regist,strlen(message_regist)+1, 0);
+
+        while(timeout--)
+        {
+            ret = recv(ccgw_socket, message_regist_back, sizeof(message_regist_back), 0);  // received packet
+            if (ret > 0)
+                break;
+            else if (ret = 0) // tcp disconnected
+                return -1;
+            
+        }
+        printf("ccgw register response is: %s\n",message_regist_back);
+        ptr2 = strchr(message_regist_back,' ');
+        ptr3 = strchr(ptr2+1,' ');
+        memcpy(command,ptr2+1,ptr3-ptr2-1);
+
+        if(memcmp(command,success,9)==0)
+        {
+            printf("ccgw register successfull!!!\n");
+        }
+        else
+        {
+            ptr4 = strchr(ptr3+1,' ');
+            memcpy(error_NO,ptr3+1,3);
+            printf("1@The regist  error type is %s\n",error_NO);
+            close(ccgw_socket);
+            return -1;
+        }
+        printf("begin to parse register success message:\n");
+
+        ptr2 = strchr(ptr3+1,' ');  // serial num
+        ptr3 = strchr(ptr2+1,' ');  // stb id
+        
+        ptr2 = strchr(ptr3+1,' ');  // virtual address
+        ptr2[0] = 0;
+        strcpy(local_virtual_address, ptr3+1);
+        printf("here1 %s\n",local_virtual_address);
+        
+        ptr3 = strchr(ptr2+1,' ');  // download channel freq 
+        ptr3[0] = 0;
+        strcpy(cable_parm,ptr2+1);
+        download_cab_par.freq = (unsigned)atoi(cable_parm)/100;
+
+        ptr2 = strchr(ptr3+1,' ');   // download channel samplerate
+        ptr2[0] = 0;
+        strcpy(cable_parm,ptr3+1);
+        download_cab_par.symb = (unsigned)atoi(cable_parm)/100;
+
+        ptr3 = strchr(ptr2+1,' ');  // download channel Anex mode
+        ptr3[0] = 0;
+        strcpy(cable_parm,ptr2+1);
+        download_cab_par.annex = atoi(cable_parm);
+
+        ptr2 = strchr(ptr3+1,' ');   // download channel qam mode
+        ptr2[0] = 0;
+        strcpy(cable_parm,ptr3+1);
+        download_cab_par.qam = atoi(cable_parm);
+
+        ptr3 = strchr(ptr2+1,'\n');  // download channel pnid
+        ptr3[0] = 0;
+        strcpy(cable_parm,ptr2+1);
+        download_cab_par.pnid = atoi(cable_parm);
+        
+	/*
+        if(ipqam_get_channel_info(download_cab_par, &ipqam_download_pid))
+        {
+            printf("get ipqam_download_pid by pat/pmt failed\n");
+            return -1;
+        }
+*/
+        return 0;
+}
+
+int32_t ccgw_keepalive()
+{
+    uint8_t message_keepalive[200] = {0};
+    static uint32_t timeout = 0;
+    if(timeout++>=500)
+    {
+        sprintf(message_keepalive,"%s %s %d %s %s\n", register_msg_version, register_msg_name_alive, 
+        register_msg_num++, register_msg_user, register_msg_pwd);
+        printf("alive request is: %s\n",message_keepalive);
+        send(ccgw_socket, message_keepalive,strlen(message_keepalive)+1, 0);
+        timeout = 0;
+    }            
+    return 0;
+}
+
+
+//tun 工作在三层 ip层
+int32_t tun_create ()
+{
+    struct ifreq ifr;
+    int fd;
+    char *device = "/dev/tun";
+    char *ipqam_dev = "ipqam_tun";
+    if ((fd = open (device, O_WRONLY)) < 0) //创建描述符
+        fprintf(stderr, "Cannot open TUN/TAP dev %s", device);
+		
+    memset (&ifr, 0, sizeof (ifr));
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+  
+    strncpy (ifr.ifr_name, ipqam_dev, IFNAMSIZ);
+
+     if(ioctl(fd, TUNSETIFF, (void *)&ifr) < 0)//打开虚拟网卡
+          fprintf(stderr, "Cannot ioctl TUNSETIFF %s", ipqam_dev);
+
+    if(ioctl(fd, TUNSETNOCSUM, (void *)&ifr) < 0)//不校验和
+          fprintf(stderr, "Cannot ioctl TUNSETIFF %s", ipqam_dev);
+
+    fprintf(stderr, "TUN/TAP device %s opened\n", ifr.ifr_name);
+    
+    if(SetLocalIP(ipqam_dev, "0.0.0.0")<0)
+    {
+        printf("set local ip err\n");
+        return 0;
+    }
+    return fd;
+}
+/*
+void message_callback(void *context, int param)
+{
+    BSTD_UNUSED(param);
+    BKNI_SetEvent((BKNI_EventHandle)context);
+}
+*/
+void crc_callback(void *context,int param)
+{
+    printf("CRC error!!!\n");
+}
+
+/*change work mode*/
+
+int32_t setup_tun(void)
+{
+	uint8_t cmdline[1024];
+	uint32_t ipqam_tun;
+	    
+	GetLocalIP("eth0",local_ip_addr);
+	printf("local addr: %s\n",local_ip_addr);
+	
+	/* register to ccgw */
+	printf("ccgw_register\n");
+	if(ccgw_register())
+	{
+		printf("ccgw register failed\n");
+		return -1;
+	}
+
+	/* exec the ipqam.sh to setup tunnel and nat */
+	printf("exec ipqam.sh\n");
+	sprintf(cmdline,"./ipqam.sh %s %s %s",local_ip_addr,ccgw_ip_string,local_virtual_address);
+	system(cmdline);
+
+	/*  open tun dev(named ipqam_tun)  */
+	printf("tun_create()\n");
+	ipqam_tun = tun_create();  
+
+	return 0;
+}
+
+
+#if 0
+int32_t main(void)
+{
+
+	Cable_Par cab_parameter;
+
+	uint32_t buffer_size = 4096;
+	uint32_t ipqam_tun;
+	uint32_t ip_length= 0; 
+	uint32_t total_ip_length = 0;
+	uint8_t *ipqam_buffer_point;
+
+
+	uint32_t pid;
+	uint8_t section_buffer[4096], buf[12];
+	uint8_t *message_buffer;
+	uint32_t message_size;
+	uint32_t message_length = 0;
+	uint8_t *pbuf;
+	uint8_t cmdline[1024];
+
+	uint32_t i;
+	int32_t ipqam_raw_sock;
+	int32_t on = 1;
+	struct sockaddr address;
+
+	NEXUS_Platform_Init(NULL);
+
+
+	DSP_porting_tune_init();	
+
+	DSP_porting_demux_init();
+
+
+	cab_parameter.freq = 5550000;
+	cab_parameter.symb = 68750;
+	cab_parameter.annex = 1;
+	cab_parameter.qam = 64;
+	cab_parameter.pnid = 2;  // carousel pnid 1
+	/* get carousel pid by parsing PAT/PMT */
+	//    if(ipqam_get_channel_info(cab_parameter, &pid))
+	//    {
+	//        printf("get carousel pid by parsing PAT/PMT failed\n");
+	//        return -1;
+	//    }
+	/* get carousel info by pid */
+	//    if(ipqam_get_carousel_info(cab_parameter, pid))
+	//    {
+	//        printf("get carousel info by pid failed\n");
+	//        return -1;
+	//    }
+
+	GetLocalIP("eth0",local_ip_addr);
+	printf("local addr: %s\n",local_ip_addr);
+
+
+	/* register to ccgw */
+	if(ccgw_register())
+	{
+		printf("ccgw register failed\n");
+		return -1;
+	}
+
+	/* exec the ipqam.sh to setup tunnel and nat */
+	sprintf(cmdline,"./ipqam.sh %s %s %s",local_ip_addr,ccgw_ip_string,local_virtual_address);
+	system(cmdline);
+
+	//    while(1)
+	//        {
+	//DSP_porting_time_sleep(1000);
+	//    }
+#if 1   
+	/*  open tun dev(named ipqam_tun)  */
+	ipqam_tun = tun_create();  
+
+	//   system("./tunconfig.sh");
+
+	/*    if((ipqam_raw_sock = socket(AF_INET, SOCK_RAW,IPPROTO_RAW))<0)
+	      {
+	      printf("ipqam_raw_sock open err\n");
+	      return -1;
+	      }
+	      setsockopt(ipqam_raw_sock, IPPROTO_RAW, IP_HDRINCL, &on, sizeof(on));
+	      address.sa_family = AF_INET;
+	//memcpy(address.sa_data,local_ip_addr,14);
+	memcpy(address.sa_data,"127.0.0.1",14);
+	 */        
+	buf[0] = '0';
+	buf[1] = (download_cab_par.freq>> 24) & 0xFF;
+	buf[2] = (download_cab_par.freq >> 16) & 0xFF;
+	buf[3] = (download_cab_par.freq >>  8) & 0xFF;
+	buf[4] = (download_cab_par.freq        ) & 0xFF;
+
+	buf[5] = (download_cab_par.symb>> 24) & 0xFF;
+	buf[6] = (download_cab_par.symb >> 16) & 0xFF;
+	buf[7] = (download_cab_par.symb >> 8) & 0xFF;
+	buf[8] = (download_cab_par.symb       ) & 0xFF;
+	buf[9] = (download_cab_par.annex) & 0xFF;
+	buf[10] = (download_cab_par.qam>>8) & 0xFF;
+	buf[11] = (download_cab_par.qam) & 0xFF;
+	DSP_porting_tune_lock(0, buf, 12, 0, 0);
+
+	uint32_t sec_len, ip_len;
+	uint32_t section_len;   
+	uint8_t sbuf[4096];        
+#if 0
+	uint32_t filterID;
+	uint32_t event[3];
+
+
+	uint8_t coef[8];
+	uint8_t mask[8];
+	uint8_t excl[8];
+
+
+	coef[0] = 0;
+	mask[0] = 0;
+	excl[0] = 0;
+	if ((filterID = DSP_porting_filter_open(ipqam_download_pid, 4096*64, 1, coef, mask, excl)) == -1)    //filter PAT
+	{
+		printf("open filter for download channel failed\n");
+		return IPQAM_RET_FAILED;
+	}
+	while(1)   // get matched PMT
+	{
+		if (DSP_porting_filter_poll(filterID, (unsigned int *)event) == 1)
+		{
+			if ((section_len=DSP_porting_filter_recv(filterID, sbuf, 4096)))
+			{
+				//write IP packets to tun dev, MPE may contain several ip packets which need to decompose. xyz, 20101025
+				section_len -=16;  // payload length need to remove MPE header and crc
+				ip_len = (((int32_t)sbuf[14]<<8)&0xff00)+((int32_t)sbuf[15]&0xff);
+				printf("get section len=%d, ip len=%d\n",section_len,ip_len);
+				//                for(i=0;i<section_len;i++)
+				//                {
+				//                    printf("%02x",sbuf[i+12]);
+				//                }
+				//                printf("\n");
+				/*   // need to fix, for further multi-ip payload
+				     ip_length = 0;
+				     total_ip_length = 0;
+				     pbuf = sbuf+8;
+				     while(total_ip_length<section_len)
+				     {
+				     ip_length = pbuf[1];
+				     write(ipqam_tun, buffer, ip_length);
+				     buffer += ip_length;
+				     total_ip_length +=ip_length;
+				     }
+				 */                
+				//                if(write(ipqam_tun, sbuf+12, section_len)<0)
+				//    printf("write tun err\n");
+				if(sendto(ipqam_raw_sock, sbuf+12, ip_len, 0, &address, sizeof(address))<0)
+					//                if(write(ipqam_raw_sock, sbuf+12, section_len+1)<0)
+				{
+					perror("why");
+					printf("send err\n");
+				}
+
+			}
+
+		}
+		else
+		{
+			DSP_porting_time_sleep(10);
+			//ccgw_keepalive();
+		}		
+	}
+#endif
+	NEXUS_PidChannelHandle pidChannel0,pidChannel1,pidChannel2,pidChannel3;
+	NEXUS_PidChannelSettings pidChannelSettings;
+	NEXUS_MessageHandle msg;
+	NEXUS_MessageSettings settings;
+	NEXUS_MessageStartSettings startSettings;
+	BKNI_EventHandle event;
+	NEXUS_MemoryAllocationSettings allocSettings;
+	char *buffer;
+	NEXUS_PidChannel_GetDefaultSettings(&pidChannelSettings);
+	pidChannel0= NEXUS_PidChannel_Open(NEXUS_ParserBand_e0, ipqam_download_pid, &pidChannelSettings);
+
+	BKNI_CreateEvent(&event);
+
+	/* use app-allocated message buffer as recommended in Nexus_Usage.pdf. */
+	NEXUS_Memory_GetDefaultAllocationSettings(&allocSettings);
+	allocSettings.alignment = 1024;
+#define BUFFER_SIZE  512*1024 /*512*1024*/    /*xuc*/
+	NEXUS_Memory_Allocate(BUFFER_SIZE, &allocSettings, &buffer);
+
+	NEXUS_Message_GetDefaultSettings(&settings);
+	settings.dataReady.callback = message_callback;
+	settings.dataReady.context = event;
+	settings.crcError.callback = crc_callback;
+	settings.crcError.context = event;
+	settings.maxContiguousMessageSize = 4096;
+	settings.bufferSize = 0; /* don't have Message alloc the buffer. recommended for maximum flexibility. */
+	msg = NEXUS_Message_Open(&settings);
+	BDBG_ASSERT(msg);
+
+	NEXUS_Message_GetDefaultStartSettings(msg, &startSettings);
+	/*startSettings.pidChannel = pidChannel00;*/
+	startSettings.pidChannel = pidChannel0;
+	startSettings.buffer = buffer; /* use the app-allocated buffer. */
+	startSettings.bufferSize = BUFFER_SIZE;
+	startSettings.filter.coefficient[0] = 0x3e;
+	startSettings.filter.mask[0] = 0x0;
+	startSettings.filter.exclusion[0] = 0xff;
+
+	if (NEXUS_Message_Start(msg, &startSettings))
+	{
+		printf("filter open failed\n");
+		return -1;
+	}
+	uint8_t *download_buffer;
+	uint8_t ip_buf[4096];
+	size_t size;
+	uint32_t total_len = 0;
+	uint32_t section_space;
+	printf("start download\n");
+	while(1)
+	{
+		size = 0;
+		NEXUS_Message_GetBuffer(msg, (const void **)&download_buffer, &size);
+		if (!size) 
+		{
+			BKNI_WaitForEvent(event, 5 * 1000); /* wait 5 seconds */
+			continue;
+		}
+		total_len = 0;
+		memcpy(ip_buf, download_buffer, size);
+		download_buffer = ip_buf;
+		NEXUS_Message_ReadComplete(msg, size);       
+		while(total_len<(size-4))
+		{
+			section_len = TS_PSI_GET_SECTION_LENGTH(download_buffer)+3;
+			section_space = ((section_len+3) >> 2) << 2;
+
+			section_len -=16;
+			ip_len = (((int32_t)download_buffer[14]<<8)&0xff00)+((int32_t)download_buffer[15]&0xff);  
+
+			//            printf("size %d, section len = %d, ip_len=%d\n",size, section_len,ip_len);            
+			//            if(sendto(ipqam_raw_sock, download_buffer+12, section_len, 0, &address, sizeof(address))<0)
+			if(write(ipqam_tun, download_buffer+12, section_len)<0)
+			{
+				perror("why");
+				printf("section_len %d, %x, ip_len %d\n",section_len,section_len,ip_len);
+				for(i=0;i<section_len;i++)
+				{
+					printf("%02x",download_buffer[12+i]);
+				}
+				printf("\n");
+			}        
+			total_len+=section_space;
+			download_buffer += section_space;
+
+			if((size-4)>total_len)
+				printf("more section captured\n");
+		}
+
+	}
+
+	close(ccgw_socket);
+#endif    
+	//DSP_porting_filter_close(filterID);
+	DSP_porting_demux_exit();
+}
+#endif

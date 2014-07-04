@@ -1,0 +1,114 @@
+#include "timer_handler.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static pthread_mutex_t timerh_lock=PTHREAD_MUTEX_INITIALIZER;
+
+static struct timer_function function_handler[MAX_TIMER_HANDLER];
+
+void Init_JD_Handler()
+{
+    int i;
+
+    pthread_mutex_lock(&timerh_lock);
+
+    for(i=0; i<MAX_TIMER_HANDLER; i++)
+    {
+        function_handler[i].alive = 0;
+        function_handler[i].eventID = EVENT_NULL;
+    }
+
+    pthread_mutex_unlock(&timerh_lock);
+
+    return;
+
+}
+
+void Add_JD_Timerhandler(enum DLEventID event, time_t timer, timer_handler handler, void *context)
+{
+    if(event >= MAX_TIMER_HANDLER)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&timerh_lock);
+
+    printf("add  timer function %d \n",event);
+
+    function_handler[event].alive = 1;
+    function_handler[event].context = context;
+    function_handler[event].th = handler;
+    function_handler[event].timer = timer;
+    function_handler[event].eventID= event;
+
+
+    pthread_mutex_unlock(&timerh_lock);
+
+    return ;
+}
+
+void Del_JD_Timerhandler(enum DLEventID event)
+{
+    if(event >= MAX_TIMER_HANDLER)
+    {
+        return;
+    }
+    
+    pthread_mutex_lock(&timerh_lock);
+    
+    function_handler[event].alive = 0;
+    pthread_mutex_unlock(&timerh_lock);
+
+    return;
+}
+
+
+void Poll_JD_Timerhandler()
+{
+    int i;
+    time_t timer = time(NULL);
+    
+    pthread_mutex_lock(&timerh_lock);
+    
+    for(i=0; i<MAX_TIMER_HANDLER; i++)
+    {
+        if(function_handler[i].alive)
+        {
+            if(timer >= function_handler[i].timer)
+            {
+                printf("exec the timer function %d \n",function_handler[i].eventID);
+                function_handler[i].th(function_handler[i].context);
+                function_handler[i].alive = 0;
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&timerh_lock);
+
+    return;
+}
+
+void exec_all_JDhandler()
+{
+    int i;
+    
+    pthread_mutex_lock(&timerh_lock);
+    
+    for(i=0; i<MAX_TIMER_HANDLER; i++)
+    {
+        if(function_handler[i].alive && i!=CHECK_UPLOAD_LOGS)
+        {
+            {
+                printf("exec the timer function %d \n",function_handler[i].eventID);
+                function_handler[i].th(function_handler[i].context);
+                function_handler[i].alive = 0;
+            }
+        }
+    }
+
+       
+    pthread_mutex_unlock(&timerh_lock);
+
+    return;
+}
+

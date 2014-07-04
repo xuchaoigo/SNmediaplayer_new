@@ -1,0 +1,291 @@
+#ifndef _LOCALFILEPLAYER_H
+#define _LOCALFILEPLAYER_H
+#include <sys/msg.h>
+#include <string.h>
+#include <dirent.h>
+#include "SNmediaplayer.h"
+#include "RealizeSNmediaplayer.h"
+#include "DSPFilePlayer.h"
+#include "big5togbk.h"
+typedef enum
+{
+	LOCALMEDIAPLAYER_URLCHANGE,
+	LOCALMEDIAPLAYER_VOLUMECHANGE,
+	LOCALMEDIAPLAYER_VOLUMEMUTE,
+	LOCALMEDIAPLAYER_PLAY,
+	LOCALMEDIAPLAYER_PAUSE,
+	LOCALMEDIAPLAYER_FASTFORWARD,
+	LOCALMEDIAPLAYER_FASTBACKWARD,
+	LOCALMEDIAPLAYER_SEEK,
+	LOCALMEDIAPLAYER_REALTIMETV,
+	LOCALMEDIAPLAYER_QUIT,
+}LocalMediaPlayCMD;
+
+#define IX_SCREEN_X 0
+#define IX_SCREEN_Y 0
+#define IX_SCREEN_WIDTH 1280
+#define IX_SCREEN_HEIGHT 720
+
+/*
+#define LOCAL_MEDIAPLAYER_QUEUE_KEY (6200L+132)
+#define MAX_MESSAGE_LEN	2048
+typedef struct msgbuff{
+	long mtype;
+	char mdata[MAX_MESSAGE_LEN];
+}Message;
+*/
+#define MAX_SUBTITLE_LINES 2  //本宏限制一屏字幕最多显示的行数
+#define MAX_SUBTITLE_STRLEN 96 //本宏限制一屏中一行最多显示的字数
+#define MAX_SUBTITLE_SRTLINES 8192//2048 //本宏限制能解析的字幕行数
+#define IX_MAX_FILENAME_LENGTH 512
+
+typedef struct
+{
+	unsigned int start;//本字幕行开始时间 ms
+	unsigned int end;//本字幕字行结束时间 ms
+	char text[MAX_SUBTITLE_LINES][MAX_SUBTITLE_STRLEN];
+}TextSubLineType;
+
+typedef struct 
+{
+	int in_use;//标志是否使用中
+	int line_num;//行数
+	unsigned int start_time;
+	unsigned int end_time;
+	int rect_y;
+	int rect_height;
+}UsingSubLine;
+
+typedef struct
+{
+	char subDisable;
+	char subfilepathchssrt[512];//if has chs.srt here save it's path
+	char subfilepathchtsrt[512];//
+	char subfilepathengsrt[512];
+	char subfilepathsrt[512];//.srt 不是chs.srt etc..严格区别它们
+	char subfilepathass[512];
+	char subfilepathssa[512];
+	char *subfilepath;//当前字幕文件的路径
+	char subfiletype;//当前字幕文件的原类型1 chs.srt 2 .srt 3 .ass 4 .ssa when 0 nosub
+	// 5 cht.srt 6 eng.srt
+	char subfileencode;//字幕文件的原编码类型 1 ansi多字节 2 unicode UTF-16 bigendian
+						// 3 unicode UTF-16 littleendian  4 unicode UTF-8
+	unsigned int substat;//记录字幕扫描情况 各种字幕是否存在
+	//若最低位为1 表示有chs.srt文件 若次低为1 有cht.srt 若再次低位为1 表示有eng.srt
+	//若再低位为1 表示有.srt文件 若再左低位为1表示有.ass 再左1表示有.ssa
+	int sublinesum;//字幕对白数目
+	int subX;//字幕显示窗口的左上角坐标x
+	int subY;//字幕显示窗口的左上角坐标y
+	int subcnt;//sub file cycle use
+	int showindex;//当前正显示中字幕索引 若无置-1
+	TextSubLineType subline[MAX_SUBTITLE_SRTLINES];//字幕数据
+	int flag_sub_changed;//标示此次加载字幕是否和上次不同
+}TextSubType;
+
+class LocalFilePlayer:public RealizeSNmediaplayer
+{
+	
+public:
+	/*构造函数*/
+	LocalFilePlayer(int instanceid,int videoDisplayMode, int playmode,
+	int height, int width, int left, int top, int muteFlag,  int muteuiflag, int subtitleFlag, 	
+	int videoAlpha, int cycleFlag, int randomFlag, int autoDelFlag,string json_str,	
+	int useNativeUIFlag,int audioVolumeUIFlag,int audioTrackUIFlag,int progressBarUIFlag,	
+	int channelNoUIFlag,int allowTrickmodeFlag,int speed,int volume,int pipmode,	
+	MediaplayerStateChangeCallback playstate_func);
+
+	/*析构函数*/
+	~ LocalFilePlayer();
+
+	play_state getPlayState(){return local_playstate;}
+
+	void player_setvolume(int volumeindex);
+
+	/*	要求终端访问指定的频道，并立即返回。
+	对由本地设置为跳过的频道，也返回-1。
+	频道地址为通过SetConfig设置的频道列表中的地址	
+	Userchannelid，整数，表示用户频道号。
+	返回值：0，表示成功；
+	-1：表示频道号无效。
+	*/
+
+	int setSingleMedia(string mediastr);
+	
+	int joinChannel(int userchannelid, string& json_str){return -1;}
+
+	/*要求终端离开指定的频道，并立即返回
+	返回值：0，表示成功；
+	-1：表示频道号无效。
+	*/
+	int leaveChannel(){return -1;}
+	
+	/*	0: 允许TrickMode操做
+		1: 不允许TrickMode操作 (默认值)
+	*/
+	void setAllowTrickmodeFlag (int allowTrickmode){real_allowTrickmodeFlag=allowTrickmode;return;}
+
+/*	从媒体起始点开始播放。
+	对TV channel，以实时TV的方式开始播放。
+	*/
+	 int playFromStart() ;
+
+	/*	从当前媒体的某个时间点开始播放媒体
+	（对playlist而言是指当前已经选中的媒体）。
+	对实时播放的TV channel该调用无效，
+	但对处于时移状态的TV channel有效。
+	-type:
+	1：参见RFC2326中的Normal Play Time (NPT)
+	2：参见RFC2326中的Absolute Time (Clock Time)
+	-timestamp:
+	参见RFC2326中的Normal Play Time (NPT)和Absolute Time (Clock Time)两种时间类型的格式
+	timestamp:对VoD而言是从媒体起始点开始计算的相对时间；对TVoD等有时间基的媒体而言就是绝对时间。
+	-speed：
+	播放速度，可选参数。
+	*/
+	 int playByTime(int type, int timestamp,int speed);
+
+	/*暂停正在播放的媒体*/
+	 int pause() ;
+
+	/*	-speed：2至32*/
+	 int fastForward(int speed) ;
+
+	/*	-speed：-2至-32*/
+	 int fastRewind(int speed) ;
+
+	/*从当前媒体的暂停/快进/快退状态恢复正常播放。*/
+	 int resume() ;
+
+	/*跳到媒体末端播放*/
+	 int gotoEnd() ;//可选的
+
+	/*跳到媒体起始点播放*/
+	 int gotoStart();//可选的
+
+	/*停止正在播放的媒体。并释放机顶盒本地播放器的相关资源。*/
+	 int stop()  ;
+
+	/*停止正在播放的媒体。并释放机顶盒本地播放器的相关资源。*/
+	 int player_setwindowparms(int top, int left, int width, int height)  ;
+
+	/*切换声道，循环进行。*/
+	 int switchAudioChannel() ;//可选的
+
+	/*切换音轨，循环进行。*/
+	 int switchAudioTrack(){return 0;}//可选的
+
+	/*切换字幕，循环进行。*/
+	 int switchSubtitle();//可选的
+
+	/*获取当前播放的媒体的总时长,整数，以秒为单位*/
+	 int getMediaDuration();
+
+	/*	获取媒体播放到的当前时间点
+	对VoD为从该媒体起始点开始计算的相对时间，以秒为单位；
+	对TVoD为当前播放点的绝对时间；
+	对Channel而言无意义
+	参见RFC2326中的Normal Play Time (NPT)和Absolute Time (Clock Time)两种时间类型的格式
+	*/
+	 unsigned long getCurrentPlayTime();
+
+	/*播放器的当前播放模式
+	其中至少包括“播放模式”和“模式相关参数” 两类信息，
+	播放模式分：Normal Play，Pause，Trickmode；
+	当模式为Trickmode时必须带2x/-2x, 4x/-4x, 8x/-8x, 16x/-16x, 32x/-32x参数来表示快进/快退的速度参数
+	*/
+	 char * getPlaybackMode() ;
+
+	/*	用于获取上一次发生的错误代码*/
+	 int GetLastError();//可选
+
+	/*返回机顶盒当前播放的频道号，
+	不能获得有效的频道号时，返回-1。
+	*/
+	 int getChannelNum() ;
+
+private:
+	//int SendtoMediaplayermsg(int cmd,char *data=NULL, int datalen=0);
+
+	//int RcvfromMediaplayermsg(int *cmd, char *data=NULL);
+	
+	int ClosePlayer();
+	
+	int OpenPlayer();
+
+	int IX_HasSubAss(char *path);
+
+	int IX_HasSubSrt(char *path);
+
+	int IX_HasSubEngSrt(char *path);
+
+	int IX_HasSubChtSrt(char *path);
+
+	int IX_HasSubChsSrt(char *path);
+
+	int SubLoadNext();
+
+	int IX_CheckSubEncode();
+
+	int getmediaurlfromjson();
+	
+	DSPFP_RETVALUE SetPlayerParam();
+
+	int IX_HasSubSsa(char *path);
+
+	int IX_SubExist(char *path);
+
+	void IX_stripNL(FILE *fp,int c);
+
+	void IX_Big5toGbk(char *buffer);
+
+	int IX_SubReadLine(FILE *fp,char *buffer,int size);
+
+	void IX_ParseSrtDialog(char *buffer,char *text);
+
+	void IX_ParseSrtTime(char *buffer,int *start,int *end);
+
+	void IX_ParseSubSrt();
+
+	void IX_ParseAssDialog(char *buffer);
+
+	void IX_ParseSubAss();
+
+	void IX_ParseSubSsa();
+
+	void IX_ParseSub();
+
+	void IX_SubEnable();
+
+	void IX_Uni16BigToUtf8(char *src,char *dest);
+
+	void IX_Uni16LittleToUtf8(char *src,char *dest);
+
+	void UnicodeBigToLittle(char *src);
+
+	int GetUtf8ByteNumForWord(unsigned char firstCh);
+
+	void Utf8ToGb2312(const unsigned char* inbuf, int len, unsigned char *outbuf);
+	play_state local_playstate;
+	int local_allowTrickmodeflag;
+	//Message recvmsg;
+	//Message sendmsg;
+	//int msgid;
+	int local_playstarttime;
+	unsigned int local_duration;
+	unsigned int local_currenttime;
+	int local_mplayer_handle;
+	string sn_json_str;
+	struct DSPFilePlayParms Playparms;
+	enum DSPOutputDualMode_type local_audiomode;
+
+	TextSubType gTextSub;
+	UsingSubLine line1;
+	UsingSubLine line2;
+	int suboffset;//字幕显示时间偏移
+	int yoffset;//y坐标偏移 -subfontheight or subfontheight;
+	int subfileSum;//record sub numbers
+	int subindex;/*显示事件用*/
+};
+
+#endif
+

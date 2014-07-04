@@ -1,0 +1,45 @@
+#ifndef _VODCLIENT_H
+#define _VODCLIENT_H
+
+/*rstp rtp lib include*/
+#include "RTSPClient.h"
+
+#include <pthread.h>
+
+#include "voderrmsg.h"
+
+#define VOD_PORTBASE 12500
+#define VOD_PORTEND 12540
+
+#define VOD_PORTBASE_AD 12540
+#define VOD_PORTEND_AD 12580
+
+extern "C"
+{
+	#include "rtp.h" 
+}
+
+typedef struct{
+	unsigned char *buf;
+	unsigned int bufsize;
+	unsigned int readcount;
+	unsigned int bytesleft;
+	int count;
+}buf_info;
+
+
+typedef struct
+{
+	int port;
+	char *url; 
+}Net_Conf_Vod;
+
+typedef enum{
+	
+	Tv_Play = 1<<1,
+	Film_Play = 1<<2,
+	Tvs_Play = 1<<3
+	
+}Vod_type;
+
+#endif 

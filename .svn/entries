@@ -1,0 +1,34 @@
+8
+
+dir
+11
+svn://192.168.200.234/SNmediaplayer
+svn://192.168.200.234/SNmediaplayer
+
+
+
+2011-10-21T16:45:25.892827Z
+11
+xuc
+
+
+svn:special svn:externals svn:needs-lock
+
+
+
+
+
+
+
+
+
+
+
+8fc6b47e-9295-4131-87bb-b756d9005404
+
+RTSP_prv
+dir
+
+snmediaplayer
+dir
+

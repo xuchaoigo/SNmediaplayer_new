@@ -1,0 +1,14 @@
+struct DSPFilePlayParms
+{
+	char url[DSP_MAX_FILENAME_LENGTH];
+	int loop;
+	int starttime;
+	int fullscreen;
+	int play_audio;
+	int start_play;
+	int volumeindex;
+	int video_ratio;
+	int stop_at_lastpicture;
+	struct DSPOut_window playwindow;	
+};
+

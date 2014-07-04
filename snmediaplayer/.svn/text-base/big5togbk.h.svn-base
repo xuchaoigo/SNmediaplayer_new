@@ -1,0 +1,13 @@
+#ifndef _BIG5TOGBK_H_
+#define _BIG5TOGBK_H_
+#ifdef __cplusplus
+	extern "C" {
+#endif
+
+unsigned short Big5toGbk(unsigned short big5);//没有找到返回 0x3f0x3f 即??
+unsigned short GbktoBig5(unsigned short gbk);//没有找到返回 0x3f0x3f 即??
+#ifdef __cplusplus
+}
+#endif
+
+#endif

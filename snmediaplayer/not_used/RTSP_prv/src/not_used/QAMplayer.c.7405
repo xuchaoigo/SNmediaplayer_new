@@ -1,0 +1,421 @@
+#include "nexus_frontend.h"
+#include "nexus_platform.h"
+#include "nexus_parser_band.h"
+#include "nexus_video_decoder.h"
+#include "nexus_stc_channel.h"
+#include "nexus_display.h"
+#include "nexus_video_window.h"
+#include "nexus_video_input.h"
+#include "nexus_audio_dac.h"
+#include "nexus_audio_decoder.h"
+#include "nexus_audio_output.h"
+#include "nexus_audio_input.h"
+#include "nexus_message.h"
+#include "nexus_pid_channel.h"
+#if NEXUS_DTV_PLATFORM
+#include "nexus_platform_boardcfg.h"
+#endif
+#include "bstd.h"
+#include "bkni.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "vod_def.h"
+#include "voderrmsg.h"
+void message_callback(void *context, int param)
+{
+	BSTD_UNUSED(param);
+	BKNI_SetEvent((BKNI_EventHandle)context);
+}
+
+static void lock_callback(void *context, int param)
+{
+	NEXUS_FrontendHandle frontend = (NEXUS_FrontendHandle)context;
+	NEXUS_FrontendQamStatus qamStatus;
+
+	BSTD_UNUSED(param);
+
+	fprintf(stderr, "Lock callback, frontend 0x%08x\n", (unsigned)frontend);
+
+	NEXUS_Frontend_GetQamStatus(frontend, &qamStatus);
+	fprintf(stderr, "QAM Lock callback, frontend 0x%08x - lock status %d, %d\n", (unsigned)frontend,
+			qamStatus.fecLock, qamStatus.receiverLock);
+}
+static char judge_av_type(unsigned char stream_type) /*  return value:0-video; 1-audio  */
+{
+	switch(stream_type)
+	{
+		case 0x01: return 0;
+		case 0x02: return 0;
+		case 0x03: return 1;
+		case 0x04: return 1;
+		case 0x81: return 1;      /*ipqam will set stream_type of audio to 0x81.(HD-texus.ts)*/
+		default: return 2;
+
+
+
+	}
+
+}
+static int ipqam_pid_parser(NEXUS_ParserBand* parserBand, int* vpid_out, int* apid_out, int* pcr_pid_out, unsigned short pnID_in)
+{
+#define TS_READ_16( BUF ) ((uint16_t)((BUF)[0]<<8|(BUF)[1]))
+#define TS_PSI_GET_SECTION_LENGTH( BUF )    (uint16_t)(TS_READ_16( &(BUF)[1] ) & 0x0FFF)
+
+	NEXUS_PidChannelHandle pidChannel;
+	NEXUS_MessageHandle msg;
+	NEXUS_MessageSettings settings;
+	NEXUS_MessageStartSettings startSettings;
+
+	NEXUS_PidChannelSettings pidChannelSettings;
+	BKNI_EventHandle event;
+	/*unsigned count = 100;*/
+	void *msg_buffer;
+	unsigned short pmt_program_number = 0;
+	unsigned short pmt_pid = 0;
+	int vod_pmt_pid = -1;
+	NEXUS_MemoryAllocationSettings allocSettings;
+	NEXUS_PidChannel_GetDefaultSettings(&pidChannelSettings);
+	pidChannel = NEXUS_PidChannel_Open(*parserBand, 0x0, &pidChannelSettings);
+
+	BKNI_CreateEvent(&event);
+
+	/* use app-allocated message buffer as recommended in Nexus_Usage.pdf. */
+	NEXUS_Memory_GetDefaultAllocationSettings(&allocSettings);
+	allocSettings.alignment = 1024;
+#define BUFFER_SIZE 4096
+	NEXUS_Memory_Allocate(BUFFER_SIZE, &allocSettings, &msg_buffer);
+
+	NEXUS_Message_GetDefaultSettings(&settings);
+	settings.dataReady.callback = message_callback;
+	settings.dataReady.context = event;
+	settings.maxContiguousMessageSize = 4096;
+	settings.bufferSize = 0; /* don't have Message alloc the buffer. recommended for maximum flexibility. */
+	msg = NEXUS_Message_Open(&settings);
+	BDBG_ASSERT(msg);
+
+	NEXUS_Message_GetDefaultStartSettings(msg, &startSettings);
+	startSettings.pidChannel = pidChannel;
+	startSettings.buffer = msg_buffer; /* use the app-allocated buffer. */
+	startSettings.bufferSize = BUFFER_SIZE;
+	/* use the default filter for any data */
+
+	if (NEXUS_Message_Start(msg, &startSettings))
+	{
+		set_voderrno(ERR_VOD_DEMUX);
+		return 1;
+	}
+	while(1)
+	{
+		const uint8_t *buffer;
+		size_t size;
+		int programNum, message_length;
+
+
+		if (NEXUS_Message_GetBuffer(msg, (const void **)&buffer, &size))
+		{
+			set_voderrno(ERR_VOD_DEMUX);
+			return 2;
+		}
+		if (!size)
+		{
+			BERR_Code rc = BKNI_WaitForEvent(event, 5 * 1000); /* wait 5 seconds */
+			if (rc) 
+			{
+				set_voderrno(ERR_VOD_DEMUX);
+				return 3;
+			}
+			else
+			{
+				continue;
+			}
+		}
+
+
+
+
+
+		/* We should always get whole PAT's because maxContiguousMessageSize is 4K */
+		message_length = TS_PSI_GET_SECTION_LENGTH(buffer) + 3;
+		BDBG_ASSERT(size >= (size_t)message_length);
+
+		printf("Found PAT: id=%d size=%d\n", buffer[0], message_length);
+		for (programNum=0;programNum<(TS_PSI_GET_SECTION_LENGTH(buffer)-9)/4;programNum++) 
+		{
+			unsigned byteOffset = 8 + programNum*4;
+			pmt_program_number = TS_READ_16( &buffer[byteOffset] );
+			pmt_pid = (uint16_t)(TS_READ_16( &buffer[byteOffset+2] ) & 0x1FFF);
+			printf("  program %d: pid 0x%x\n", pmt_program_number, pmt_pid);
+
+			printf("pnID_in = %d\npmt_program_number = %d\n",pnID_in, pmt_program_number);
+			printf("pmt_pid = %d\n",pmt_pid);
+			if(pmt_program_number == pnID_in)
+			{
+				vod_pmt_pid = pmt_pid;
+				break;
+			}
+		}
+		/* only complete one PAT */
+		NEXUS_Message_ReadComplete(msg, message_length);
+		if(vod_pmt_pid<0)
+		{
+			set_voderrno(ERR_VOD_NO_PMT);
+			return 4;
+		}
+
+
+		break;
+	}
+	NEXUS_Message_Stop(msg);
+	NEXUS_PidChannel_Close(pidChannel);
+
+	/*begin to parse PMT to get video_pid, audio_pid, pcr_pid */
+	NEXUS_PidChannel_GetDefaultSettings(&pidChannelSettings);
+	pidChannel = NEXUS_PidChannel_Open(*parserBand, vod_pmt_pid, &pidChannelSettings);
+	NEXUS_Message_GetDefaultStartSettings(msg, &startSettings);
+	startSettings.pidChannel = pidChannel;
+	startSettings.buffer = msg_buffer; /* use the app-allocated buffer. */
+	startSettings.bufferSize = BUFFER_SIZE;
+	/* use the default filter for any data */
+
+	if (NEXUS_Message_Start(msg, &startSettings))
+	{
+		set_voderrno(ERR_VOD_DEMUX);
+		return 5;
+	}
+	while(1)
+	{
+		const uint8_t *pmt_buffer;
+		size_t size;
+		int message_length;
+		unsigned char stream_type;
+		char av_type;
+		unsigned byte_offset;
+		int idx;
+		if (NEXUS_Message_GetBuffer(msg, (const void **)&pmt_buffer, &size))
+		{
+			set_voderrno(ERR_VOD_DEMUX);
+			return 2;
+		}
+		if (!size)
+		{
+			BERR_Code rc = BKNI_WaitForEvent(event, 5 * 1000); /* wait 5 seconds */
+			if (rc) 
+			{
+				set_voderrno(ERR_VOD_DEMUX);
+				return 3;
+			}
+			else
+			{
+				continue;
+			}
+		}
+		VOD_DEBUG("pmt_buffer:");
+
+		message_length = TS_PSI_GET_SECTION_LENGTH(pmt_buffer) + 3;
+		for(idx=0; idx<message_length; idx++)
+		{
+			printf("0x%02x\n", pmt_buffer[idx]);
+		}
+		*pcr_pid_out = TS_READ_16(pmt_buffer + 8)&0x1fff;
+		byte_offset = 12+(TS_READ_16(pmt_buffer+10)&0x0fff);
+		*apid_out = -1;
+		*vpid_out = -1;
+		while(byte_offset<(message_length-7) && (*apid_out < 0 || *vpid_out < 0))
+		{
+			VOD_DEBUG("byte_offset== %u",byte_offset);
+			stream_type = pmt_buffer[byte_offset];
+			printf("stream_type = %d\n",stream_type);
+			av_type = judge_av_type(stream_type);
+			if(av_type == 0)
+			{
+				*vpid_out = TS_READ_16(pmt_buffer+byte_offset+1) & 0x1fff;
+			}
+			else if(av_type == 1)
+			{
+				*apid_out = TS_READ_16(pmt_buffer+byte_offset+1) & 0x1fff;
+			}
+			else
+			{
+				VOD_DEBUG("unknown av_type!");
+
+			}
+			printf("+= %d\n",(TS_READ_16(pmt_buffer+byte_offset+3) & 0x0fff) + 5);
+			byte_offset += (TS_READ_16(pmt_buffer+byte_offset+3) & 0x0fff) + 5;
+			/*byte_offset += 5;*/
+			VOD_DEBUG("byte_offset== %u",byte_offset);
+		}
+		NEXUS_Message_ReadComplete(msg, message_length);
+		break;
+	}
+	NEXUS_Message_Stop(msg);
+	NEXUS_Message_Close(msg);
+	NEXUS_PidChannel_Close(pidChannel);
+	return 0;
+}
+void* QAMplayer_task(void *play_param_in)
+{
+	NEXUS_FrontendUserParameters userParams;
+	NEXUS_FrontendHandle frontend=NULL;
+	NEXUS_FrontendQamSettings qamSettings;
+	NEXUS_PlatformConfiguration platformConfig;
+	NEXUS_ParserBand parserBand;
+	NEXUS_ParserBandSettings parserBandSettings;
+	NEXUS_StcChannelHandle stcChannel;
+	NEXUS_StcChannelSettings stcSettings;
+	NEXUS_DisplayHandle display;
+	NEXUS_DisplaySettings displaySettings;
+	NEXUS_VideoWindowHandle window;
+	NEXUS_VideoDecoderHandle videoDecoder;
+	NEXUS_AudioDecoderHandle audioDecoder;
+	PlayParam_t *play_param = (PlayParam_t*)play_param_in;
+	unsigned i;
+	int video_pid = -1;
+	int audio_pid = -1;
+	int pcr_pid = -1;
+	int parse_result;
+	NEXUS_Platform_Init(NULL);
+	NEXUS_Platform_GetConfiguration(&platformConfig);
+
+	for ( i = 0; i < NEXUS_MAX_FRONTENDS; i++ )
+	{
+		NEXUS_FrontendCapabilities capabilities;
+		frontend = platformConfig.frontend[i];
+		if (frontend) {
+			NEXUS_Frontend_GetCapabilities(frontend, &capabilities);
+			/* Does this frontend support qam? */
+			if ( capabilities.qam )
+			{
+				break;
+			}
+		}
+	}
+	if (NULL == frontend )
+	{
+		fprintf(stderr, "Unable to find QAM-capable frontend\n");
+		return (void*)-1;
+	}
+	while(!(play_param->ready))usleep(200000);
+	NEXUS_Frontend_GetDefaultQamSettings(&qamSettings);
+	qamSettings.frequency = play_param->frequency;
+	qamSettings.symbolRate = play_param->symbolRate;
+	printf("tune:  qamSettings.frequency = %d\n", qamSettings.frequency);
+	switch(play_param->mode)
+	{
+		case 16:
+			qamSettings.mode = NEXUS_FrontendQamMode_e16;
+			break;
+		case 32:
+			qamSettings.mode = NEXUS_FrontendQamMode_e32;
+			break;
+		case 64:
+			qamSettings.mode = NEXUS_FrontendQamMode_e64;
+			break;
+		case 128:
+			qamSettings.mode = NEXUS_FrontendQamMode_e128;
+			break;
+		case 256:
+			qamSettings.mode = NEXUS_FrontendQamMode_e256;
+			break;
+		default:
+			handle_vod_err("QAM-mode not supported!");
+			return (void*)-1;
+
+	}
+	switch(play_param->annex)
+	{
+		case 1:
+			qamSettings.annex = NEXUS_FrontendQamAnnex_eA;
+			break;
+		case 2:
+			qamSettings.annex = NEXUS_FrontendQamAnnex_eB;
+			break;
+		case 3:
+			qamSettings.annex = NEXUS_FrontendQamAnnex_eMax;
+			break;
+		default:
+			handle_vod_err("QAM-annex not supported!");
+			return (void*)-1;
+
+	}
+
+	qamSettings.lockCallback.callback = lock_callback;
+	qamSettings.lockCallback.context = frontend;
+
+	NEXUS_Frontend_GetUserParameters(frontend, &userParams);
+
+	/* Map a parser band to the demod's input band. */
+	parserBand = NEXUS_ParserBand_e0;
+	NEXUS_ParserBand_GetSettings(parserBand, &parserBandSettings);
+	parserBandSettings.sourceType = NEXUS_ParserBandSourceType_eInputBand;
+	parserBandSettings.sourceTypeSettings.inputBand = userParams.param1;  /* Platform initializes this to input band */
+	parserBandSettings.transportType = NEXUS_TransportType_eTs;
+	NEXUS_ParserBand_SetSettings(parserBand, &parserBandSettings);
+
+	NEXUS_StcChannel_GetDefaultSettings(0, &stcSettings);
+	stcSettings.timebase = NEXUS_Timebase_e0;
+	stcChannel = NEXUS_StcChannel_Open(0, &stcSettings);
+
+	audioDecoder = NEXUS_AudioDecoder_Open(0, NULL);
+	NEXUS_AudioOutput_AddInput(
+			NEXUS_AudioDac_GetConnector(platformConfig.outputs.audioDacs[0]),
+			NEXUS_AudioDecoder_GetConnector(audioDecoder, NEXUS_AudioDecoderConnectorType_eStereo));
+
+	NEXUS_Display_GetDefaultSettings(&displaySettings);
+	displaySettings.format = NEXUS_VideoFormat_eNtsc;
+	display = NEXUS_Display_Open(0, &displaySettings);
+	NEXUS_Display_AddOutput(display, NEXUS_ComponentOutput_GetConnector(platformConfig.outputs.component[0]));
+
+	window = NEXUS_VideoWindow_Open(display, 0);
+	videoDecoder = NEXUS_VideoDecoder_Open(0, NULL);
+	NEXUS_VideoWindow_AddInput(window, NEXUS_VideoDecoder_GetConnector(videoDecoder));
+
+	NEXUS_Frontend_TuneQam(frontend, &qamSettings);
+	
+	parse_result = ipqam_pid_parser(&parserBand, &video_pid, &audio_pid, &pcr_pid, play_param->pnID);
+	if(parse_result)
+	{
+		VOD_DEBUG("parse_result==%d", parse_result);
+		handle_vod_err(VodGetErrorString());
+		return (void*)-1;
+	}
+	VOD_DEBUG("vpid=%d, apid=%d, pcr_pid=%d", video_pid, audio_pid, pcr_pid);
+
+	while (1)
+	{
+		NEXUS_PidChannelHandle videoPidChannel, audioPidChannel, pcrPidChannel;
+		NEXUS_VideoDecoderStartSettings videoProgram;
+		NEXUS_AudioDecoderStartSettings audioProgram;
+
+		videoPidChannel = NEXUS_PidChannel_Open(parserBand, video_pid, NULL);
+		audioPidChannel = NEXUS_PidChannel_Open(parserBand, audio_pid, NULL);
+		pcrPidChannel = NEXUS_PidChannel_Open(parserBand, pcr_pid, NULL);
+		NEXUS_VideoDecoder_GetDefaultStartSettings(&videoProgram);
+		videoProgram.codec = NEXUS_VideoCodec_eMpeg2;
+		videoProgram.pidChannel = videoPidChannel;
+		videoProgram.stcChannel = stcChannel;
+		NEXUS_AudioDecoder_GetDefaultStartSettings(&audioProgram);
+		audioProgram.codec = NEXUS_AudioCodec_eMp3;
+		audioProgram.pidChannel = audioPidChannel;
+		audioProgram.stcChannel = stcChannel;
+
+		NEXUS_StcChannel_GetSettings(stcChannel, &stcSettings);
+		stcSettings.mode = NEXUS_StcChannelMode_ePcr; /* live */
+		stcSettings.modeSettings.pcr.pidChannel = pcrPidChannel; /* PCR happens to be on video pid */
+		NEXUS_StcChannel_SetSettings(stcChannel, &stcSettings);
+
+
+
+		NEXUS_VideoDecoder_Start(videoDecoder, &videoProgram);
+		NEXUS_AudioDecoder_Start(audioDecoder, &audioProgram);
+
+		getchar();
+
+		NEXUS_AudioDecoder_Stop(audioDecoder);
+		NEXUS_VideoDecoder_Stop(videoDecoder);
+		NEXUS_PidChannel_Close(videoPidChannel);
+		NEXUS_PidChannel_Close(audioPidChannel);
+		break;
+	}
+return (void*)0;
+}

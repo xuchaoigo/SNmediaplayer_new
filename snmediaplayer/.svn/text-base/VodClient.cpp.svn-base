@@ -1,0 +1,323 @@
+#include "StreamMediaPlayer.h"
+#include "ui_display.h"
+
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <time.h>
+
+#define SOCKET_TIMEOUT_USECONDS 1000000
+
+
+
+static void rtp_event_handler(struct rtp *session, rtp_event *e) 
+{
+
+}
+
+#define VOD_PORTBASE 12500
+#define VOD_PORTEND 12540
+
+#define VOD_PORTBASE_AD 12540
+#define VOD_PORTEND_AD 12580
+
+
+int StreamMediaPlayer::Init_Unicast()
+{
+	mp2parameter_t mp2parameter;
+	session = NULL;
+	char host_addr[20]; 
+	int rtprecvport = VOD_PORTBASE+4*(porttimes%10);
+
+	//vodurl= mediaurl;
+	net_conf_vod.url = (char *)vodurl.c_str();
+		
+	/*建立rtsp连接，并初始化rtp 会话*/
+/*xuc*/
+	/*
+	if(rtspclient.run((unsigned char *)net_conf_vod.url, rtprecvport, TS, &mp2parameter, true) == -1)
+	{
+		rtspclient.cleanup();
+		return -1;
+	}
+*/
+
+/*
+	if(vodtype == Tv_Play)
+	{
+		start_time = tvshift_starttime;
+		stop_time = tvshift_stoptime;
+	}
+*/
+/*xuc*///duration = rtspclient.get_duration();//(vodtype==Tv_Play) ? (stop_time-start_time):rtspclient.get_duration();
+
+	memset(host_addr, 0 , sizeof(host_addr));
+	strcpy(host_addr,"192.168.200.83");
+	
+	mp2parameter.host_addr = host_addr;
+	mp2parameter.tx_port = 1242;
+	mp2parameter.rx_port = 5004;
+	mp2parameter.my_ssrc = 0x757b12df;
+	
+	printf("xuc: host ip=%s, rx_port=%d,tx_port=%d,my_ssrc=0x%x\n",mp2parameter.host_addr,mp2parameter.rx_port,mp2parameter.tx_port,mp2parameter.my_ssrc);
+	session = rtp_init(mp2parameter.host_addr, mp2parameter.rx_port, mp2parameter.tx_port, mp2parameter.my_ssrc,16, 7864320,rtp_event_handler, NULL);	
+	if(!session)
+	{
+		printf("session is null\n");
+		return -1;
+	}
+	printf("film length  %f\n",duration);
+	//printf("session: addr = %s, rx_port=%d,tx_port=%d\n\n\n",session->addr,  session->rx_port,  session->tx_port);
+
+	
+	porttimes ++;
+	status_network = 1;
+
+	return 0;
+}
+
+int StreamMediaPlayer::Quit_Unicast()
+{
+
+	/*destroy rtp client */
+	/* Say bye-bye */
+	printf("Quit_Unicast\n");
+	/*
+	if(session)
+	{
+		rtp_send_bye(session);
+		rtp_done(session);
+	}
+
+*/
+	
+	/*destroy rtsp client*/
+	/*xuc : release private rtspclient!*/
+	//rtspclient.rtspTEARDOWN();
+	//rtspclient.cleanup();
+
+	return 0;
+}
+
+int StreamMediaPlayer::clean_socketdata ()
+{
+	int i;
+	rtspclient.rtspPAUSE();
+	unsigned char buffer_tmp[1500];
+	int j =0;
+	for(i = 0; i<500; i++)
+	{
+		if(VODRead(buffer_tmp,1500) <=0)
+			j ++;
+		else 
+			j = 0;
+		if(j >= 50)
+			break;
+	}
+	return 0;
+
+}
+
+int StreamMediaPlayer::VODRead (unsigned char * buf, int len )
+{
+	int payload_length;
+	unsigned long timestamp_lsb;
+	unsigned long  timestamp_msb;	
+	static rtp_event event;
+	int ret = 0;
+#if 0
+	 FILE *fp;
+	fp=fopen("/tmp/hd1/film-data","a");
+	if(fp == NULL)
+	{
+	  printf("文件打开失败。\n");
+	  
+	}
+#endif
+
+	//printf("VODRead   %p session %p\n",buf,session);
+	ret = rtp_recv(session,(char *)buf,&event);
+	if(ret)
+	{
+		printf("ret = %d\n",ret);
+		rtp_packet *p= (rtp_packet *)event.data;
+		//printf("vod read recv %d\n",p->data_len);
+		payload_length = p->data_len;
+		payloadtype = p->pt;
+
+#if 0
+		if(fp)
+		{
+		fwrite(buf,payload_length,1,fp); 
+		fclose(fp);
+			}
+		else
+			printf("miss one!!!!!!!!!!!!!!!!\n");
+#endif	
+		#if 1
+			//static unsigned int now_seq = 0,pre_seq = 0;
+			now_seq = p->seq;
+			if(pre_seq != 0)
+			if((now_seq-pre_seq) != 1)
+				printf("not the same oder!pre_seq:%u,now_seq:%u\n",pre_seq,now_seq);
+		#endif	
+#if 1
+		timestamp_lsb = p->ts;
+		if(p->extn)
+			timestamp_msb = ntohl(*((unsigned long *)(p->extn+4)));
+		else 
+			timestamp_msb = 0;
+		//printf("timestamp_msb %ld timestamp_lsb %ld\n",timestamp_msb,timestamp_lsb);	
+		u_lasttimestamp = U64fromTwo32(timestamp_msb,timestamp_lsb);	
+		//printf("u_lasttimestamp is %lld,trans_time s %lld\n",u_lasttimestamp,trans_time);
+#endif		
+		pre_seq = now_seq;
+
+		//memcpy(buf,p->data,payload_length);	
+		p = NULL;
+		return payload_length;
+	}
+
+	//printf("aaa vod read recv\n");
+	/* State maintenance */
+	//rtp_update(session);
+
+//	if(fp)
+//		fclose(fp);
+	return 0;
+}
+
+void StreamMediaPlayer::show_time(int hour, int minute, int second)
+{
+	//char time[20];
+	static int hour_pr,minute_pr,second_pr;
+
+	return;
+	if(first_show)
+	{
+		//显示秒分钟和小时
+		first_show = 0;
+		hour_pr = hour;
+		minute_pr = minute;
+		second_pr = second;
+		UI_JD_displaytime_hour(hour);
+		UI_JD_displaytime_minute(minute);
+		UI_JD_displaytime_second(second);
+		//memset(time,0,20);
+		//sprintf(time,"%.2d:%.2d:%.2d",hour,minute,second);
+		//printf("time %s\n",time);
+		//UI_JD_displaytime(time);
+	}
+	else
+	{
+		if(hour_pr!=hour)
+		{
+			hour_pr = hour;
+			UI_JD_displaytime_hour(hour);
+		}
+
+		if(minute_pr != minute)
+		{
+			minute_pr = minute;
+			UI_JD_displaytime_minute(minute);
+		}
+
+		if(second_pr != second)
+		{
+			second_pr = second;
+			UI_JD_displaytime_second(second);	
+		}
+	}
+		
+}
+
+void StreamMediaPlayer::show_step()
+{
+	if(playerstate != PLAYERSTATE_FASTBACKWARD &&playerstate != PLAYERSTATE_FASTFORWARD)
+		return;
+	switch(playspeed)
+	{
+		case RM_TRICKMODE_FWD2:
+			UI_JD_display(STATE_FAST_FORWARD_2, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_FWD4:
+			UI_JD_display(STATE_FAST_FORWARD_4, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_FWD8:
+			UI_JD_display(STATE_FAST_FORWARD_8, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_FWD16:
+			UI_JD_display(STATE_FAST_FORWARD_16, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_BWD2:
+			UI_JD_display(STATE_FAST_REWIND_2, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_BWD4:
+			UI_JD_display(STATE_FAST_REWIND_4, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_BWD8:
+			UI_JD_display(STATE_FAST_REWIND_8, 0, NULL);
+			break;
+			
+		case RM_TRICKMODE_BWD16:
+			UI_JD_display(STATE_FAST_REWIND_16, 0, NULL);
+			break;
+		default:
+			printf("unkown speed\n");
+			break;
+	}
+}
+void StreamMediaPlayer::input_time(char a)
+{
+	switch(time_pos)
+	{
+		case 0:
+			hour[0] = a;
+			mtime[0] = a;
+			time_pos ++;
+			printf("jump to %f, %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;
+		case 1:
+			hour[1] = a;
+			mtime[1] = a;
+			time_pos ++;
+			printf("jump to %f, %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;
+		case 2:
+			minute[0] = a;
+			mtime[3] = a;
+			time_pos++;
+			printf("jump to %f, %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;
+		case 3:
+			minute[1]=a;
+			mtime[4]=a;
+			time_pos++;
+			printf("jump to %f ****** %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;
+		case 4:
+			second[0] = a;
+			mtime[6] = a;
+			time_pos++;
+			printf("jump to %f**********  %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;	
+		case 5:
+			second[1]=a;
+			mtime[7]=a;
+			time_pos++;
+			printf("jump to %f ********* %d\n",(double)(atol(hour)*3600+atol(minute)*60+atol(second)),time_pos);
+			break;
+		default:
+			break;
+			
+	}
+}
+
+
+
+

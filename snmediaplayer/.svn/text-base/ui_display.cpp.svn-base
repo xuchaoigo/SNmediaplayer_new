@@ -1,0 +1,384 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+
+#define TVOD_PIC_PATH "/tmp/stbportal_local/jd/TVOD.png"
+
+#include "ui_display.h"
+#include "timer_handler.h"
+#include "DSP_graphics_api.h"
+
+
+int get_digital_maxwidth(int fontsize)
+{
+ 	static int out_width=0, out_height;
+	if(!out_width)
+		DSP_graphics_ui_get_text_pixel_length(DEFAULTFONT,"3", strlen("3"), fontsize, fontsize, &out_width, &out_height);
+	return out_width;
+}
+
+
+void UI_JD_disappear(void *context)
+{
+	printf("key disappear\n");
+	DSPRect in_rect ={BUTTON_X, BUTTON_Y, 250,90};
+
+	if(context)
+		memcpy(&in_rect, context, sizeof(DSPRect));
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+
+void UI_TVODLOG_disappear()
+{
+	printf("key disappear\n");
+	DSPRect in_rect ={TVODLOG_X, TVODLOG_Y, TVODLOG_WIDTH,TVODLOG_HEIGHT};
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+
+void UI_JD_displaytime_disappear()
+{
+	//printf(" UI_JD_displaytime_disappear\n");
+	DSPRect in_rect ={SHOWTIME_X, SHOWTIME_Y-SHOWTIME_FONT_SIZE, SHOWTIME_WIDTH,SHOWTIME_HEIGHT};
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+ 
+int UI_JD_displaytime(char *in_show_text)
+{
+	UI_JD_displaytime_disappear();
+	DSP_graphics_ui_display_text(DEFAULTFONT, in_show_text, strlen(in_show_text),SHOWTIME_X, SHOWTIME_Y, SHOWTIME_FONT_SIZE, SHOWTIME_FONT_SIZE, YELLOW, 0x0);
+	return 0;
+}
+
+void UI_JD_displayhour_disappear()
+{
+	//printf(" UI_JD_displaytime_disappear\n");
+	DSPRect in_rect ={SHOWTIME_X, SHOWTIME_Y-SHOWTIME_FONT_SIZE, 3*get_digital_maxwidth(SHOWTIME_FONT_SIZE),SHOWTIME_HEIGHT};
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+
+
+int UI_JD_displaytime_hour(int hour)
+{
+	char show_text[16];
+
+	sprintf(show_text,"%.2d:",hour);
+	
+	UI_JD_displayhour_disappear();
+	DSP_graphics_ui_display_text(DEFAULTFONT, show_text, strlen(show_text),SHOWTIME_X, SHOWTIME_Y, SHOWTIME_FONT_SIZE, SHOWTIME_FONT_SIZE, YELLOW, 0x0);
+	return 0;
+}
+
+
+
+void UI_JD_displayminute_disappear()
+{
+	//printf(" UI_JD_displaytime_disappear\n");
+	DSPRect in_rect ={SHOWTIME_X+3*get_digital_maxwidth(SHOWTIME_FONT_SIZE), SHOWTIME_Y-SHOWTIME_FONT_SIZE, 3*get_digital_maxwidth(SHOWTIME_FONT_SIZE),SHOWTIME_HEIGHT};
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+
+
+int UI_JD_displaytime_minute(int minute)
+{
+	char show_text[16];
+
+	sprintf(show_text,"%.2d:",minute);
+	
+	UI_JD_displayminute_disappear();
+	DSP_graphics_ui_display_text(DEFAULTFONT, show_text, strlen(show_text),SHOWTIME_X+(3*get_digital_maxwidth(SHOWTIME_FONT_SIZE)), SHOWTIME_Y, SHOWTIME_FONT_SIZE, SHOWTIME_FONT_SIZE, YELLOW, 0x0);
+	return 0;
+}
+
+void UI_JD_displaysecond_disappear()
+{
+	//printf(" UI_JD_displaytime_disappear\n");
+	DSPRect in_rect ={SHOWTIME_X+2*(3*get_digital_maxwidth(SHOWTIME_FONT_SIZE)), SHOWTIME_Y-SHOWTIME_FONT_SIZE, 3*get_digital_maxwidth(SHOWTIME_FONT_SIZE),SHOWTIME_HEIGHT};
+
+	DSP_graphics_ui_fill_rectangle(in_rect, 0x0);//transparent
+	return;
+}
+
+
+int UI_JD_displaytime_second(int second)
+{
+	char show_text[16];
+
+	sprintf(show_text,"%.2d",second);
+	
+	UI_JD_displaysecond_disappear();
+	DSP_graphics_ui_display_text(DEFAULTFONT, show_text, strlen(show_text),SHOWTIME_X+2*(3*get_digital_maxwidth(SHOWTIME_FONT_SIZE)), SHOWTIME_Y, SHOWTIME_FONT_SIZE, SHOWTIME_FONT_SIZE, YELLOW, 0x0);
+	return 0;
+}
+
+//显示文本框，返回文本框所占据的行数
+static int show_dialog_text_inmiddle(char *inp_subtext2, int intext_xoffset, int intext_yoffset, int fontsize, int showwidth)
+{
+	int i = 0,text_yoffset= intext_yoffset; 
+	int row=0;
+	int tmp_width, tmp_height,tmp_pos;
+	unsigned char tmp_uchar;
+	char *p_subtext2 = inp_subtext2;
+	int activemode =0;
+
+	DSP_graphics_ui_get_text_pixel_length(DEFAULTFONT, p_subtext2, strlen(p_subtext2), fontsize, fontsize, &tmp_width, &tmp_height);	
+
+	if( tmp_width < showwidth)
+	{
+		activemode = 1; //只有当文本一行时，才生效该模式
+	}	
+	
+	{
+		i =0;
+		DSP_graphics_ui_get_text_pixel_length(DEFAULTFONT, p_subtext2, strlen(p_subtext2), fontsize, fontsize, &tmp_width, &tmp_height);	
+
+		//printf("the tmp width is %d,dialog width is %d\n",tmp_width,DIALOGTEXT_WIDTH);
+		if( tmp_width > showwidth)
+		{
+			return 0;
+		}
+		else
+		{
+			char xoffset = 0;
+			if(activemode)
+			{
+				xoffset += (showwidth-tmp_width)/2;
+			}
+			DSP_graphics_ui_display_text(DEFAULTFONT, p_subtext2, strlen(p_subtext2), intext_xoffset+xoffset,text_yoffset,
+			fontsize, fontsize,WHITE,0);
+			row ++;
+			text_yoffset = text_yoffset+(tmp_height);
+			
+		}
+	}
+	
+	return 0;
+}
+
+
+
+int UI_JD_display(typeShowMediainfo cmd, int value, char *in_show_text)
+{
+    DSPRect in_rect;
+    char image_name[64];
+    char showtext[64];
+    time_t call_time;
+    
+    in_rect.x = BUTTON_X;
+    in_rect.y = BUTTON_Y;
+    in_rect.width = BUTTON_WIDTH_UI;
+    in_rect.height = BUTTON_HEIGHT_UI;
+    memset(image_name,0,64);
+    memcpy(image_name,UIPICTURE_PATH,64);
+    strcat(image_name,"blank.png");
+    printf("image_name is %s BUTTON_X %d y%d w %d h %d\n",image_name,in_rect.x,in_rect.y,in_rect.width,in_rect.height);
+     if(cmd==SHOW_TVOD_LOG)
+     	UI_TVODLOG_disappear();
+    else
+    	UI_JD_disappear(NULL);
+    
+
+    call_time = time(NULL);
+	
+    switch(cmd)
+    {
+        case STATE_REPEAT:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "循 环 播 放", strlen("循 环 播 放"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+        case STATE_NOT_REPEAT:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "取 消 循 环", strlen("取 消 循 环"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+        case STATE_WAIT:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "缓  冲  中", strlen("缓  冲  中"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+        case STATE_PLAY:
+        case STATE_BACKPLAY:
+            DSP_graphics_ui_display_image(image_name, in_rect, 0);
+	     show_dialog_text_inmiddle("播        放 ", in_rect.x, in_rect.y+40, 30, in_rect.width);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+            
+        case STATE_PAUSE:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+	     show_dialog_text_inmiddle("暂        停", in_rect.x, in_rect.y+40, 30, in_rect.width);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+            //DSP_graphics_ui_display_text(DEFAULTFONT, "暂        停", strlen("暂        停"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            break;
+
+            
+        case STATE_FAST_FORWARD_2:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "快  进  x 2 ", strlen("快  进  x 2 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+		Del_JD_Timerhandler(PLAYER_SHOW_UI);
+		break;
+            
+        case STATE_FAST_FORWARD_4:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "快  进  x 4 ", strlen("快  进  x 4 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+            
+        case STATE_FAST_FORWARD_8:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "快  进  x 8 ", strlen("快  进  x 8 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+           break;
+           
+        case STATE_FAST_FORWARD_16:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "快  进  x 16 ", strlen("快  进  x 16 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+
+            
+        case STATE_FAST_REWIND_2:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "后  退  x 2 ", strlen("后  退  x 2 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+            
+        case STATE_FAST_REWIND_4:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "后  退  x 4 ", strlen("后  退  x 4 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+             
+        case STATE_FAST_REWIND_8:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "后  退  x 8 ", strlen("后  退  x 8 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            break;
+            
+        case STATE_FAST_REWIND_16:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "后  退  x 16 ", strlen("后  退  x 16 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	     Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+            
+        case STATE_STOP:
+        case STATE_BACK_STOP:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "停       止", strlen("停       止"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+            
+        case STATE_AD:  
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "广  告  中", strlen("广  告  中"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+	case STATE_MUTE:
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, " 静          音 ", strlen(" 静          音 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Del_JD_Timerhandler(PLAYER_SHOW_UI);
+	     break;
+		 
+        case STATE_AUDIOMODE_LEFT:  
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "左   声   道", strlen("左   声   道"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+        case STATE_AUDIOMODE_RIGHT:  
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+            DSP_graphics_ui_display_text(DEFAULTFONT, "右   声   道", strlen("右   声   道"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+
+            break;
+			
+        case STATE_SUB_DELAY:  
+            DSP_graphics_ui_display_image( image_name, in_rect, 0);
+	     if(value > 0)
+	     {
+	     		sprintf(showtext,"字幕提前%.1f秒",(double)value/1000);
+	     }
+	     else
+	     {
+	     		int postivevalue = value*(-1);
+		 	sprintf(showtext,"字幕延迟%.1f秒",(double)postivevalue/1000);
+	     }
+            DSP_graphics_ui_display_text(DEFAULTFONT, showtext, strlen(showtext),in_rect.x+30, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+            Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+            break;
+
+
+	case STATE_AUDIOMODE_STEREO:
+		DSP_graphics_ui_display_image( image_name, in_rect, 0);
+		DSP_graphics_ui_display_text(DEFAULTFONT, "立   体   声 ", sizeof("立   体   声 "),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+		Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+
+		break;
+		
+	case STATE_VIDEORATIO:
+		DSP_graphics_ui_display_image( image_name, in_rect, 0);
+		if(value == 1)
+			strcpy(showtext,"    4  :  3    ");
+		else if(value == 2)
+			strcpy(showtext,"    16  :  9   ");
+		else
+			strcpy(showtext,"   全    屏 ");
+
+		DSP_graphics_ui_display_text(DEFAULTFONT, showtext, strlen(showtext),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+		Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+		break;
+		
+	case STATE_TV_CHANNEL:
+		sprintf(showtext,"%.2d",value);
+		DSP_graphics_ui_display_text(DEFAULTFONT, showtext, strlen(showtext),in_rect.x+120, in_rect.y+40, 50, 50, YELLOW, 0x0);
+		Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+		break;
+
+	case SHOW_NOTICE_INFO:
+		if(in_show_text)
+		{
+			DSP_graphics_ui_display_image( image_name, in_rect, 0);
+			show_dialog_text_inmiddle(in_show_text, in_rect.x, in_rect.y+40, 30, in_rect.width);
+		}
+		Add_JD_Timerhandler(PLAYER_SHOW_UI, time(NULL)+UISHOW_LAST_SECOND, UI_JD_disappear, NULL);
+		break;
+
+	case SHOW_PROG_TIME:
+		printf("show time is %s\n",in_show_text);
+		//DSP_graphics_ui_display_text(DEFAULTFONT, in_show_text, strlen(in_show_text),SHOWTIME_X, SHOWTIME_Y, SHOWTIME_FONT_SIZE, SHOWTIME_FONT_SIZE, YELLOW, 0x0);
+		break;
+
+	case SHOW_TVOD_LOG:
+    	      in_rect.x = TVODLOG_X;
+    	      in_rect.y = TVODLOG_Y;
+    	      in_rect.width = TVODLOG_WIDTH;
+    	      in_rect.height = TVODLOG_HEIGHT;
+		DSP_graphics_ui_display_image(TVOD_PIC_PATH, in_rect, 0);
+		break;
+		
+	case STATE_NO_SIGNAL:
+		DSP_graphics_ui_display_image( image_name, in_rect, 0);
+		DSP_graphics_ui_display_text(DEFAULTFONT, "无  信  号", strlen("无  信  号"),in_rect.x+50, in_rect.y+40, 30, 30, 0xFFFFFFFF, 0x0);
+	       Del_JD_Timerhandler(PLAYER_SHOW_UI);
+		break;
+
+        default:
+            printf("unknown UI type\n");
+            break;
+    }
+    return 1;
+}
+
+

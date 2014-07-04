@@ -1,0 +1,426 @@
+#ifndef _STREAMMEDIAPLAYER_H
+#define _STREAMMEDIAPLAYER_H
+
+#include <sys/msg.h>
+
+#include "RealizeSNmediaplayer.h"
+//#include "TVClient.h"
+//#include "VodClient.h"
+#include "RTSPClient_prv.h" //xuc: rtsp private 
+#define RTP_HEADER_LEN 12
+
+#define RET_PLAYER_QUIT     0     /*退出播放器，不做其他任何操作*/
+#define RET_PLAYER_LOCAL   1   /*在本业务内切换*/ 
+#define RET_PLAYER_OTHER   2  /*切换到其他业务*/
+
+
+#define SECONDS_ONEDAY 86400
+#define SECONDS_EIGHTHOURS 28800
+#define SPEED_OFFSET 100
+
+
+#define PLAYER_Full_Win_X 0 
+#define PLAYER_Full_Win_Y 0
+#define PLAYER_Full_Win_WIDTH 10000
+#define PLAYER_Full_Win_HEGHT 10000
+
+
+//超时单位为秒
+#define GET_BUFFER_TIMEOUT 3
+#define NO_DATA_TIMEOUT 3
+#define NO_ADDATA_TIMEOUT 2
+#define SEND_DATA_TIMEOUT 4
+#define GET_URL_TIMEOUT 3
+
+//触发TVS设置
+#define PAUSE_INIT 0 
+#define PAUSE_TRIG 1
+#define PAUSE_OTHERS 2	
+
+typedef enum
+{
+	EVENT_MEDIAPLAYER_NONE=0,
+	EVENT_PLAYER_EXIT = 1,
+	EVENT_BEGIN_OF_STREAM,
+	EVENT_LOAD_FINISH_AND_PLAY,
+	EVENT_LOAD_TVOD_FAILED	
+}StreamMediaPlayer_EVENT_Type;
+
+class StreamMediaPlayer:public RealizeSNmediaplayer
+{
+public:
+	StreamMediaPlayer();
+	StreamMediaPlayer(int instanceid,int videoDisplayMode, int playmode,
+	int height, int width, int left, int top, int muteFlag,  int muteuiflag, int subtitleFlag, 	
+	int videoAlpha, int cycleFlag, int randomFlag, int autoDelFlag,string json_str,	
+	int useNativeUIFlag,int audioVolumeUIFlag,int audioTrackUIFlag,int progressBarUIFlag,	
+	int channelNoUIFlag,int allowTrickmodeFlag,int speed,int volume,int pipmode,void *mpobject,	
+	MediaplayerStateChangeCallback playstate_func);
+
+	~ StreamMediaPlayer();
+
+	int getchannelurlfromjson();
+	
+	int getmediaurlfromjson();
+
+	play_state getPlayState(){return playerstate;}
+
+	void player_setvolume(int volumeindex);
+
+	/*	要求终端访问指定的频道，并立即返回。
+	对由本地设置为跳过的频道，也返回-1。
+	频道地址为通过SetConfig设置的频道列表中的地址	
+	Userchannelid，整数，表示用户频道号。
+	返回值：0，表示成功；
+	-1：表示频道号无效。
+	*/
+	int joinChannel(int userchannelid, string& json_str);
+
+	/*要求终端离开指定的频道，并立即返回
+	返回值：0，表示成功；
+	-1：表示频道号无效。
+	*/
+	int leaveChannel();
+	
+	/*	0: 允许TrickMode操做
+		1: 不允许TrickMode操作 (默认值)
+	*/
+	void setAllowTrickmodeFlag (int allowTrickmode);
+
+/*	从媒体起始点开始播放。
+	对TV channel，以实时TV的方式开始播放。
+	*/
+	 int playFromStart() ;
+
+	/*	从当前媒体的某个时间点开始播放媒体
+	（对playlist而言是指当前已经选中的媒体）。
+	对实时播放的TV channel该调用无效，
+	但对处于时移状态的TV channel有效。
+	-type:
+	1：参见RFC2326中的Normal Play Time (NPT)
+	2：参见RFC2326中的Absolute Time (Clock Time)
+	-timestamp:
+	参见RFC2326中的Normal Play Time (NPT)和Absolute Time (Clock Time)两种时间类型的格式
+	timestamp:对VoD而言是从媒体起始点开始计算的相对时间；对TVoD等有时间基的媒体而言就是绝对时间。
+	-speed：
+	播放速度，可选参数。
+	*/
+	 int playByTime(int type, int timestamp,int speed) ;
+
+	/*暂停正在播放的媒体*/
+	 int pause() ;
+
+	/*	-speed：2至32*/
+	 int fastForward(int speed) ;
+
+	/*	-speed：-2至-32*/
+	 int fastRewind(int speed) ;
+
+	/*从当前媒体的暂停/快进/快退状态恢复正常播放。*/
+	 int resume() ;
+
+	/*跳到媒体末端播放*/
+	 int gotoEnd() ;//可选的
+
+	/*跳到媒体起始点播放*/
+	 int gotoStart();//可选的
+
+	/*停止正在播放的媒体。并释放机顶盒本地播放器的相关资源。*/
+	 int stop()  ;
+
+	/*停止正在播放的媒体。并释放机顶盒本地播放器的相关资源。*/
+	 int player_setwindowparms(int top, int left, int width, int height)  ;
+
+	/*切换声道，循环进行。*/
+	 int switchAudioChannel() ;//可选的
+
+	/*切换音轨，循环进行。*/
+	 int switchAudioTrack();//可选的
+
+	/*切换字幕，循环进行。*/
+	 int switchSubtitle();//可选的
+
+	/*获取当前播放的媒体的总时长,整数，以秒为单位*/
+	 int getMediaDuration();
+
+	/*	获取媒体播放到的当前时间点
+	对VoD为从该媒体起始点开始计算的相对时间，以秒为单位；
+	对TVoD为当前播放点的绝对时间；
+	对Channel而言无意义
+	参见RFC2326中的Normal Play Time (NPT)和Absolute Time (Clock Time)两种时间类型的格式
+	*/
+	 unsigned long getCurrentPlayTime();
+
+	/*播放器的当前播放模式
+	其中至少包括“播放模式”和“模式相关参数” 两类信息，
+	播放模式分：Normal Play，Pause，Trickmode；
+	当模式为Trickmode时必须带2x/-2x, 4x/-4x, 8x/-8x, 16x/-16x, 32x/-32x参数来表示快进/快退的速度参数
+	*/
+	 char * getPlaybackMode() ;
+
+	/*	用于获取上一次发生的错误代码*/
+	 int GetLastError();//可选
+
+	 int SetLastEvent(	MediaPlayErrorType inerrortype);//可选
+
+	/*返回机顶盒当前播放的频道号，
+	不能获得有效的频道号时，返回-1。
+	*/
+
+	int setSingleMedia(string &mediaStr);
+
+	 int getChannelNum(); 
+
+ 	int setSingleMedia(string mediaStr);
+
+	void main_vod_player();
+
+	static void stream_player_thread(void *parm)
+	{
+		cout<<"xuc: stream_player_thread entered"<<endl;
+
+		StreamMediaPlayer *client = (StreamMediaPlayer *)parm;
+
+
+		if(client->stype == MEDIA_TVPLAY)
+		{
+			cout<<"playing tv"<<endl;
+			client->main_stream_player();
+		}
+		else
+		{
+			cout<<"playing vod"<<endl;
+
+			client->main_vod_player();
+		}
+		printf("xuc : stream_player_thread end!\n");
+
+	}
+	
+	void main_stream_player();
+
+	
+private:
+	int Init_StreamMediaPlayer();
+	
+	int Release_StreamMediaPlayer();
+	
+	
+	int Join_Multicast(int keepalive =0);
+	
+	int Leave_Ipv6_Multicast();
+
+	int Get_Addr (const char *hostname,
+          const char *service,
+          int         family,
+          int         socktype,
+          int *sockfd, struct sockaddr_storage *addr);
+
+	int JoinGroup(int sockfd, int loopBack, int mcastTTL,struct sockaddr_storage *addr);
+
+	int IsMulticast(struct sockaddr_storage *addr);
+	
+	int Network_Init ();
+	
+	int Network_Release ();
+	
+	int Read (unsigned char * buf, unsigned long len );
+
+	void input_tvodtime(char *a);
+
+	PLAYERProcess_cmd_goto process_tvod_msg();
+	
+	void process_unicast_msg(int cmd, PLAYERProcess_cmd_goto *gotocmd);
+
+	void process_multicast_msg(int cmd, PLAYERProcess_cmd_goto *gotocmd);
+	
+	int sendto_mediaplayermsg(int cmd,char *data=NULL, int datalen=0);
+
+	int rcvfrom_mediaplayermsg(int *cmd, char *data=NULL);
+
+	int PlayerRecvStopKey();
+
+	void Set_Player_Window();
+
+	void check_prebuffering_state(unsigned int buffersize);
+
+	void process_common_msg(int *cmdtype, int *processed);	
+
+	
+private: //频道相关函数
+	
+
+	int		Init_Multicast();
+	
+	int 	      Quit_Multicast();	
+
+	int 		RTPChoose(unsigned char *, unsigned long );
+	
+	int 		RTPRead (unsigned char *, unsigned long );
+	
+	int 		UDPRead (unsigned char *, unsigned long );
+	
+	int 		RTPRead_n(unsigned char * p_buffer, unsigned long i_len, bool needtimestamp);
+	
+	int          TVRead(unsigned char * p_buffer, unsigned long i_len );
+
+	
+	/*the last packet timestamp*/
+	unsigned long long      m_lasttimestamp;
+
+	int                       rtpheader_len;
+
+	unsigned long		i_mtu;
+	int                       data_sock;
+
+//	Net_Conf_Tv		net_conf_tv;
+
+ 	string multicastip;
+	string port;
+
+private: //vod相关函数
+	void update_play_pts(void);
+
+	int update_playtime(unsigned long newplaytime);
+
+	int ClearDummyKey();
+	
+	int VODRead (unsigned char * buf, int len );
+
+	int clean_socketdata ();
+
+	unsigned long long Get_LastTimeStamp(){ return u_lasttimestamp;}
+	
+	void input_time(char a);
+
+	double Get_LastPlaytime(){return playing_time;}
+	
+	int Init_Unicast();
+		
+	int Quit_Unicast();
+
+	void show_time(int hour, int minute, int second);
+	
+	void show_step();
+
+	int parse_cw_from_license(char *license, unsigned char *key);
+
+	unsigned char buffer_tmp[1500];
+	
+	/*the last packet timestamp*/
+	unsigned long long               u_lasttimestamp;//ok
+	unsigned long playing_time;	//ok
+	long playing_time_last_update_sec;
+	long playing_time_last_update_usec;
+	unsigned int play_first_pts;
+	unsigned int play_last_pts;
+	unsigned long long trans_time;//ok
+	//unsigned long long firstptstime;//ok
+	unsigned long long nowptstime;//ok
+	
+//	Net_Conf_Vod net_conf_vod;
+// 	RTSPClient rtspclient;
+//	struct rtp *session;
+	
+	int skiptime;//the time to skip to
+	int first_show;//the first show time is full  
+	unsigned long media_start_time;//ok
+	unsigned long media_stop_time;//xuc :新增
+
+	unsigned long stop_time;
+
+	unsigned long tvshiftstarttime;
+	unsigned long tvshift_stoptime;
+	
+	int time_pos;
+	char hour[3];
+	char minute[3];
+	char second[3];
+	char mtime[24];
+
+	/*当前播放的时间*/
+	int play_hour;
+	int play_minute;
+	int play_second;
+	unsigned long nowtime;
+	unsigned long time_ptr;
+
+	char *	contentid; //节目的contentid
+
+	int porttimes;
+
+private:
+
+	double duration;//the film duration
+	unsigned char        payloadtype;
+
+	unsigned int now_seq;
+	unsigned int pre_seq;
+	string vodurl;
+
+private:
+
+	string playbackmode;
+	play_state playerstate;
+	StreamType stype; 
+	int channel;
+	string mediaurl;
+	int msgid;
+
+	int 	 if_multicast;	
+	int   if_livetv;
+
+	int   rt_value;
+	unsigned long sptype;
+
+
+	int sallowTrickmode;
+	pthread_t mediaplayer_thread;
+
+	int 	TSPlayerHandle;
+
+	int ifalways_fullwin; //是否总处于全屏状态
+
+	int iftvfullscreen;//当前是否为全屏状态
+	
+	int prebuf_level;
+	int prebuf_max;
+
+	int trickmode_id; //标明快进、快退的方向,大于0快进
+	
+//	enum DSPStopmode stopmode;
+
+//	enum DSPPlaymode playmode;
+
+	int volumesize;
+
+	int ismute;
+	
+	int status_network;
+	
+	int status_decoder;
+
+	Message recvmsg;
+	Message sendmsg;
+
+	unsigned short     seqnumber;
+	//unsigned long playstarttime;
+	int playspeed;
+	int mspeed;
+
+	time_t session_starttime;
+
+	int trick_ok_flag;
+	
+	//xuc add
+	RTSPClient_prv * rtsp_session_server, *rtsp_streaming_server;
+	unsigned int havplay,hwin;  //dvbplay句柄
+	unsigned int cur_freq;
+	unsigned int if_sm_setup;					     //
+	unsigned int vod_start_time, vod_end_time;    //getmediaurlfromjson解析出的vod起止时间
+	unsigned int setup_type;				//启动业务类型
+	unsigned int pause_into_tvs;
+	unsigned int backward_into_tvs;
+};
+
+#endif

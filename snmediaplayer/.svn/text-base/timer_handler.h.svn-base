@@ -1,0 +1,47 @@
+#ifndef _TIMER_HANDLER_H
+#define _TIMER_HANDLER_H
+
+#include <time.h>
+#include <pthread.h>
+
+typedef void (*timer_handler)(void * context);
+
+#define MAX_TIMER_HANDLER 8 //与everntid 对应
+
+enum DLEventID{
+    
+    PLAYER_SHOW_UI=0, //播放UI
+    AUDIO_SHOW_UI,//音量进度条
+    CHANNEL_SHOW_UI,
+    CHECK_UPLOAD_LOGS,
+    EVENT_NULL    
+};
+
+struct timer_function
+{   
+    int alive;
+    int eventID;
+    time_t timer;
+    timer_handler th;
+    void * context;
+};
+
+#if defined(__cplusplus)
+extern "C" {     /* Make sure we have C-declarations in C++ programs */
+#endif
+
+void Init_JD_Handler();
+
+void Add_JD_Timerhandler(enum DLEventID event, time_t timer, timer_handler handler, void *context);
+
+void Del_JD_Timerhandler(enum DLEventID event);
+
+void Poll_JD_Timerhandler();
+
+
+void exec_all_JDhandler();
+
+#if defined(__cplusplus)
+}     /* Make sure we have C-declarations in C++ programs */
+#endif
+#endif
