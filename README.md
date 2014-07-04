@@ -1,0 +1,1 @@
+The mediaplayer library used in STB hi3716.
